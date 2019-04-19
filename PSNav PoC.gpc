@@ -1,0 +1,22 @@
+#pragma METAINFO("PSNav PoC", 1, 0, "Aelius")
+
+#include <remapper.gph>
+
+init {
+	// Set T2 LED red.
+	led_set(LED_2, 100.00, 0);
+}
+
+main {
+	// Disable L2 output
+	set_val(BUTTON_8, 0.00);
+	// While L2 held, LS becomes RS
+	if(event_active(BUTTON_8)){
+		remapper_swap(STICK_2_X, STICK_1_X);
+		remapper_swap(STICK_2_Y, STICK_1_Y);
+	}
+	// Revert to normal
+	if(event_release(BUTTON_8)){
+		remapper_reset();
+	}
+}

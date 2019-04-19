@@ -1,0 +1,20 @@
+/* This script is dead in the water until it becomes possible
+to differentiate between different input ports
+*/
+
+
+// Elite controller paddles unbound
+//GIVRMP:3F000102030405060708090A0B0C0D0E0F102626131415161718191A1B1C1D1E1F202122232425
+// 3DRudder only Left Joystick bound
+//GIVRMP:082626262626262626262626262626262626262626262626171826262626262626262626262626
+// Bind Stick 1 (Right Joystick) to dpad?
+
+init {}
+
+main {
+	// Rudder swivel left = dpad up
+	// Apparently rudder doesn't like exact 100
+	if (get_actual(STICK_1_Y) <= -99.00) {
+		set_val(BUTTON_10, 100);
+	}
+}
