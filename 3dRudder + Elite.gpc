@@ -1,20 +1,65 @@
-/* This script is dead in the water until it becomes possible
-to differentiate between different input ports
-*/
+#pragma METAINFO("3DRudder + Elite", 1, 0, "Aelius")
 
+#include <remapper.gph>
 
-// Elite controller paddles unbound
-//GIVRMP:3F000102030405060708090A0B0C0D0E0F102626131415161718191A1B1C1D1E1F202122232425
-// 3DRudder only Left Joystick bound
-//GIVRMP:082626262626262626262626262626262626262626262626171826262626262626262626262626
-// Bind Stick 1 (Right Joystick) to dpad?
-
-init {}
+init {
+	// Set T2 LED white.
+	led_set(LED_1, 25.00, 0);
+	led_set(LED_2, 25.00, 0);
+	led_set(LED_3, 25.00, 0);
+	// Disable special bindings for Xbox Elite paddles
+	remapper_disable(BUTTON_18);
+	remapper_disable(BUTTON_19);
+	remapper_disable(BUTTON_20);
+	remapper_disable(BUTTON_21);
+	// Only apply to the device on USB B
+	remapper_mask(RMP_USB_B);
+	// Disable EVERYTHING on 3DRudder except sticks + what they're swapped to
+	remapper_disable(BUTTON_1);
+	remapper_disable(BUTTON_2);
+	remapper_disable(BUTTON_3);
+	remapper_disable(BUTTON_4);
+	remapper_disable(BUTTON_5);
+	remapper_disable(BUTTON_6);
+	remapper_disable(BUTTON_7);
+	remapper_disable(BUTTON_8);
+	remapper_disable(BUTTON_9);
+	remapper_disable(BUTTON_10);
+	remapper_disable(BUTTON_11);
+	remapper_disable(BUTTON_12);
+	remapper_disable(BUTTON_13);
+	remapper_disable(BUTTON_14);
+	remapper_disable(BUTTON_15);
+	remapper_disable(BUTTON_16);
+	remapper_disable(BUTTON_17);
+	remapper_disable(BUTTON_18);
+	remapper_disable(BUTTON_19);
+	remapper_disable(BUTTON_20);
+	remapper_disable(BUTTON_21);
+	//remapper_disable(STICK_1_X);
+	//remapper_disable(STICK_1_Y);
+	//remapper_disable(STICK_2_X);
+	//remapper_disable(STICK_2_Y);
+	//remapper_disable(POINT_1_X);
+	//remapper_disable(POINT_1_Y);
+	remapper_disable(POINT_2_X);
+	remapper_disable(POINT_2_Y);
+	remapper_disable(ACCEL_1_X);
+	remapper_disable(ACCEL_1_Y);
+	remapper_disable(ACCEL_1_Z);
+	remapper_disable(ACCEL_2_X);
+	remapper_disable(ACCEL_2_Y);
+	remapper_disable(ACCEL_2_Z);
+	remapper_disable(GYRO_1_X);
+	remapper_disable(GYRO_1_Y);
+	remapper_disable(GYRO_1_Z);
+	// Swap stick 1 for unused buttons
+	remapper_swap(STICK_1_X,POINT_1_X);
+	remapper_swap(STICK_1_Y,POINT_1_Y);
+	// Only apply to the device on USB A
+	remapper_mask(RMP_USB_A);
+}
 
 main {
-	// Rudder swivel left = dpad up
-	// Apparently rudder doesn't like exact 100
-	if (get_actual(STICK_1_Y) <= -99.00) {
-		set_val(BUTTON_10, 100);
-	}
+// Make use of POINT_1_X/Y maybe.
 }
