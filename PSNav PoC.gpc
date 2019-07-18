@@ -5,15 +5,24 @@
 init {
 	// Set T2 LED red.
 	led_set(LED_2, 100.00, 0);
+	// Change the output protocol to not Xbox: avoid auth requirement
+    port_connect(PORT_USB_C, PROTOCOL_PS4); //PS4 or HID are valid
 }
 
 main {
 	// Disable L2 output
 	set_val(BUTTON_8, 0.00);
-	// While L2 held, LS becomes RS
+	// While L2 held
 	if(event_active(BUTTON_8)){
+		// Left stick becomes right stick
 		remapper_swap(STICK_2_X, STICK_1_X);
 		remapper_swap(STICK_2_Y, STICK_1_Y);
+		// L3/LS becomes R3/RS
+		remapper_swap(BUTTON_9, BUTTON_6);
+		// Cross/A becomes Triangle/Y
+		remapper_swap(BUTTON_16, BUTTON_14);
+		// Circle/B becomes Square/X
+		remapper_swap(BUTTON_15, BUTTON_17);
 	}
 	// Revert to normal
 	if(event_release(BUTTON_8)){
