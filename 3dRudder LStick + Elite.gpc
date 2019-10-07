@@ -1,4 +1,4 @@
-#pragma METAINFO("3DRudder + Elite", 1, 0, "Aelius")
+#pragma METAINFO("3DRudder LStick", 1, 0, "Aelius")
 
 #include <remapper.gph>
 
@@ -8,12 +8,13 @@ init {
 	led_set(LED_2, 25.00, 0);
 	led_set(LED_3, 25.00, 0);
 	// Disable special bindings for Xbox Elite paddles
-	remapper_disable(BUTTON_18);
-	remapper_disable(BUTTON_19);
-	remapper_disable(BUTTON_20);
-	remapper_disable(BUTTON_21);
+	// Unsupported; cannot have more than one remap active
+	//remapper_disable(BUTTON_18);
+	//remapper_disable(BUTTON_19);
+	//remapper_disable(BUTTON_20);
+	//remapper_disable(BUTTON_21);
 	// Only apply to the device on USB B
-	remapper_mask(RMP_USB_B);
+	//remapper_mask(RMP_USB_B);
 	// Disable EVERYTHING on 3DRudder except sticks + what they're swapped to
 	remapper_disable(BUTTON_1);
 	remapper_disable(BUTTON_2);

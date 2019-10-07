@@ -1,0 +1,29 @@
+#pragma METAINFO("mouse", 1, 0, "<author_name>")
+#include <keyboard.gph>
+#include <mouse.gph>
+
+init {
+
+}
+
+main {
+	mouse_passthru();
+    int32 xstatus;
+	int32 ystatus;
+	
+	key_set(KEY_LEFTSHIFT, FALSE);
+	
+    if (mouse_status(MREPORT_UPDATED)) {
+        if (xstatus=mouse_status(MOUSE_X)) {
+			mouse_set(MOUSE_WHEEL, (int)(xstatus/2));
+			key_set(KEY_LEFTSHIFT, TRUE);
+			mouse_set(MOUSE_X, (int)(0));
+		}
+		
+		if (ystatus=mouse_status(MOUSE_Y)) {
+			mouse_set(MOUSE_WHEEL, (int)(ystatus/2));
+			key_set(KEY_LEFTSHIFT, FALSE);
+			mouse_set(MOUSE_Y, (int)(0));
+		}
+    }
+}
