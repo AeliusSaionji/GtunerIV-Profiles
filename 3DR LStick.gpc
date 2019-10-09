@@ -1,4 +1,9 @@
-#pragma METAINFO("3DRudder DPad", 1, 0, "Aelius")
+#pragma METAINFO("3DR LStick", 1, 0, "Aelius")
+/**
+  * Elite controller fixes (just ignoring the stupid T2 paddle assignments)
+  * 3DR fixes (disable all axis not in use to prevent interference)
+  * 3DR is LStick
+ **/
 
 #include <remapper.gph>
 
@@ -7,14 +12,16 @@ init {
 	led_set(LED_1, 25.00, 0);
 	led_set(LED_2, 25.00, 0);
 	led_set(LED_3, 25.00, 0);
+	
+	/** Would that you could call remapper_mask more than once **/
 	// Disable special bindings for Xbox Elite paddles
-	// Unsupported; cannot have more than one remap active
 	//remapper_disable(BUTTON_18);
 	//remapper_disable(BUTTON_19);
 	//remapper_disable(BUTTON_20);
 	//remapper_disable(BUTTON_21);
 	// Only apply to the device on USB B
 	//remapper_mask(RMP_USB_B);
+	
 	// Disable EVERYTHING on 3DRudder except sticks + what they're swapped to
 	remapper_disable(BUTTON_1);
 	remapper_disable(BUTTON_2);
@@ -37,8 +44,8 @@ init {
 	remapper_disable(BUTTON_19);
 	remapper_disable(BUTTON_20);
 	remapper_disable(BUTTON_21);
-	remapper_disable(STICK_1_X);
-	remapper_disable(STICK_1_Y);
+	//remapper_disable(STICK_1_X);
+	//remapper_disable(STICK_1_Y);
 	//remapper_disable(STICK_2_X);
 	//remapper_disable(STICK_2_Y);
 	//remapper_disable(POINT_1_X);
@@ -54,29 +61,35 @@ init {
 	remapper_disable(GYRO_1_X);
 	remapper_disable(GYRO_1_Y);
 	remapper_disable(GYRO_1_Z);
-	// Swap stick 2 for unused point axis
-	remapper_swap(STICK_2_X,POINT_1_X);
-	remapper_swap(STICK_2_Y,POINT_1_Y);
+	// Swap stick 1 for unused buttons
+	remapper_swap(STICK_1_X,POINT_1_X);
+	remapper_swap(STICK_1_Y,POINT_1_Y);
 	// Only apply to the device on USB A
 	remapper_mask(RMP_USB_A);
 }
 
 main {
-	// map unused point axis to dpad
-	// dpad up
-    if(get_actual(POINT_1_Y) <= -30.0) {
+	// Disable Elite controller's paddle output, the shitty way
+	set_val(BUTTON_18, 0.0);
+	set_val(BUTTON_19, 0.0);
+	set_val(BUTTON_20, 0.0);
+	set_val(BUTTON_20, 0.0);
+	
+	/* 3DRudder Mappings
+	// DPad Up = Left Toe
+    if(get_actual(POINT_1_X) <= -75.5) {
 		set_val(BUTTON_10, 100.0);
     }
-	// dpad down
-	else if(get_actual(POINT_1_Y) >= 30.0) {
+	// DPad Down = Right Toe
+	else if(get_actual(POINT_1_X) >= 75.5) {
 		set_val(BUTTON_11, 100.0);
 	}
-	// dpad left
-	else if(get_actual(POINT_1_X) <= -30.0) {
+	// DPad Left = Rotate Left
+	else if(get_actual(POINT_1_Y) <= -75.5) {
 		set_val(BUTTON_12, 100.0);
     }
-	// dpad right
-	else if(get_actual(POINT_1_X) >= 30.0) {
+	// DPad Right = Rotate Right
+	else if(get_actual(POINT_1_Y) >= 75.5) {
 		set_val(BUTTON_13, 100.0);
-	}
+	} */
 }
