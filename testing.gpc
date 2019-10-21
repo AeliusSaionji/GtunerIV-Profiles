@@ -1,49 +1,22 @@
-/** TODO: 3DR Deadzones **/
-
-#pragma METAINFO("Xbox 360 Controller", 1, 0, "Buffy")
-
-#include <xb1.gph>
-
-#define DEADZONE_L 30.0
-#define DEADZONE_R 10.0
-
 main {
-    // Deadzone on left stick & right stick - leave final param as 0.0 unless you want a square deadzone
-    analog_deadzone(XB1_LX, DEADZONE_L, 0.0);
-    analog_deadzone(XB1_RX, DEADZONE_R, 0.0); 
-    
-    // Stick sensitivity - middle param is midpoint for the stick, final param is sensitivtiy (default 1.0)
-    sensitivity(XB1_LX, 0.0, 1.0);
-    sensitivity(XB1_LY, 0.0, 1.0);
-    
-    sensitivity(XB1_RX, 0.0, 1.0);
-    sensitivity(XB1_RY, 0.0, 1.0);
-}
+  static fix32 x_out, y_out;
+  static fix32 x_prev, y_prev;
 
-// taken from T1 header
-void sensitivity(int id, fix32 mid, fix32 sen) {
-    fix32 val = get_val(id);
-    if((int)mid) {
-        fix32 val_s = (val >= 0.0) ? 1.0 : -1.0;
-        val *= val_s;
-        if(val <= mid) val = (val * 50.0) / mid;
-        else val = ((50.0 * (val - mid)) / (100.0 - mid)) + 50.0;
-        val *= val_s;
-    }
- 
-    val = (val * sen);
- 
-    set_val(id, clamp(val, -100.0, 100.0));
-    return;
-}
+  fix32 valX = get_actual(STICK_2_X);
+  fix32 valY = get_actual(STICK_2_Y);
 
-void analog_deadzone(int id, fix32 deadzone, fix32 ydeadzone) {
-    if((int)ydeadzone) {
-        set_val(id, abs(get_actual(id)) < deadzone ? 0.0 : get_actual(id));
-        set_val(id+1, abs(get_actual(id+1)) < ydeadzone ? 0.0 : get_actual(id+1));
+  if(valY != y_prev || valX != x_prev) {
+    x_prev = valX, y_prev = valY;
+
+    fix32 xy_actual = sqrt(sq(valX) + sq(valY));
+    fix32 xy_out = (1.25) * xy_actual - (25f);
+
+    if(xy_actual < 30.0) y_out = 0.00, x_out = 0.00;
+    else {
+      x_out = clamp((valX * (xy_out / xy_actual)), -100.0, 100.0);
+      y_out = clamp((valY * (xy_out / xy_actual)), -100.0, 100.0);
     }
-    else if(sqrt(sq(get_actual(id)) + sq(get_actual(id+1))) < deadzone) {
-        set_val(id, 0);
-        set_val(id+1, 0);
-    }
+  }
+  set_val(STICK_2_X, x_out);
+  set_val(STICK_2_Y, y_out);
 }

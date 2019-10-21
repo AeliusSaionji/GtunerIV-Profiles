@@ -1,0 +1,38 @@
+#pragma METAINFO("PSNav HalfController", 1, 0, "Aelius")
+
+/*
+ * Makes the PSNav a half controller- no LStick.
+ * DPad presents as face buttons.
+ * X and O are L1 and L2.
+ * Presents as DS4.
+ */
+ 
+#include <remapper.gph>
+
+init {
+	// Set T2 LED red.
+	led_set(LED_2, 100.00, 0);
+	// Change the output protocol to not Xbox: avoid auth requirement
+    port_connect(PORT_USB_C, PROTOCOL_PS4); //PS4 or HID are valid
+	// Left stick becomes right stick
+	remapper_swap(STICK_2_X, STICK_1_X);
+	remapper_swap(STICK_2_Y, STICK_1_Y);
+	// Circle to L1
+	remapper_swap(BUTTON_13, BUTTON_7);
+	// Cross to L2
+	remapper_swap(BUTTON_11, BUTTON_8);
+	// DPAD to face buttons
+	remapper_swap(BUTTON_10, BUTTON_14);
+	remapper_swap(BUTTON_11, BUTTON_16);
+	remapper_swap(BUTTON_12, BUTTON_17);
+	remapper_swap(BUTTON_13, BUTTON_15);
+	// L1/L2/L3 to R1/R2/R3
+	remapper_swap(BUTTON_7, BUTTON_4);
+	remapper_swap(BUTTON_8, BUTTON_5);
+	remapper_swap(BUTTON_9, BUTTON_6);
+
+
+
+}
+
+main {}
