@@ -8,7 +8,7 @@
 
 #define DEADZONE 20.0
 #define LIMIT 65.0
-#define LIMITZONE (100.0 - LIMIT)
+#define LIMITZONE (LIMIT-DEADZONE)
 #include <remapper.gph>
 
 init {
@@ -82,9 +82,10 @@ main {
 	// Deadzone and Limit.gpc 
 	fix32 stickX = get_actual(STICK_2_X);
 	fix32 stickY = get_actual(STICK_2_Y);
-	set_val(STICK_2_X,clamp(stickX/sqrt(sq(stickX) + sq(stickY)) * max((sqrt(sq(stickX) + sq(stickY)) - DEADZONE) * (100.0 / LIMITZONE), 0.0),-100.0,100.0));
-	set_val(STICK_2_Y,clamp(stickY/sqrt(sq(stickX) + sq(stickY)) * max((sqrt(sq(stickX) + sq(stickY)) - DEADZONE) * (100.0 / LIMITZONE), 0.0),-100.0,100.0));
-	
+    fix32 hypnus = sqrt(sq(stickX) + sq(stickY));
+    set_val(STICK_2_X, clamp(stickX/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0), -100.0, 100.0));
+    set_val(STICK_2_Y, clamp(stickY/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0), -100.0, 100.0));
+
 	/* 3DRudder Mappings
 	// DPad Up = Left Toe
     if(get_actual(POINT_1_X) <= -75.5) {
