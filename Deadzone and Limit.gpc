@@ -8,21 +8,22 @@
 
 #define DEADZONE 20.0
 #define LIMIT 65.0
-#define LIMITZONE (100.0 - LIMIT)
+#define LIMITZONE (LIMIT-DEADZONE)
 
 main {
 	fix32 stickX = get_actual(STICK_2_X);
 	fix32 stickY = get_actual(STICK_2_Y);
+	fix32 hypnus = sqrt(sq(stickX) + sq(stickY));
 	
 	set_val(STICK_2_X,
 		clamp(
-			stickX/sqrt(sq(stickX) + sq(stickY)) * max((sqrt(sq(stickX) + sq(stickY)) - DEADZONE) * (100.0 / LIMITZONE), 0.0)
+			stickX/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0)
 		// clamp between -100 and 100, since 101 is treated as 0
 		,-100.0,100.0)
 	);
 	set_val(STICK_2_Y,
 		clamp(
-			stickY/sqrt(sq(stickX) + sq(stickY)) * max((sqrt(sq(stickX) + sq(stickY)) - DEADZONE) * (100.0 / LIMITZONE), 0.0)
+			stickY/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0)
 		// clamp between -100 and 100, since 101 wraps back to 0
 		,-100.0,100.0)
 	);
