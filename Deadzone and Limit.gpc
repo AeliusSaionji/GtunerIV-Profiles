@@ -18,13 +18,13 @@ main {
 	set_val(STICK_2_X,
 		clamp(
 			stickX/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0)
-		// clamp between -100 and 100, since 101 is treated as 0
+		// clamp between -100 and 100, since 101 loops back to 1
 		,-100.0,100.0)
 	);
 	set_val(STICK_2_Y,
 		clamp(
 			stickY/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0)
-		// clamp between -100 and 100, since 101 wraps back to 0
+		// clamp between -100 and 100, since 101 loops back to 1
 		,-100.0,100.0)
 	);
 }
