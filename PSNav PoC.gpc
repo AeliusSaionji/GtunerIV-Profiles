@@ -1,5 +1,10 @@
 #pragma METAINFO("PSNav PoC", 1, 0, "Aelius")
 
+/*
+ * Makes the PSNav a full controller less triggers.
+ * Presents as DS4.
+ */
+ 
 #include <remapper.gph>
 
 init {

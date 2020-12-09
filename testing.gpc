@@ -1,56 +1,22 @@
-#pragma METAINFO("<author_name>", 1, 0, "")
-
-#include <remapper.gph>
-
-init {
-	// Disable special bindings for Xbox Elite paddles
-	remapper_disable(BUTTON_18);
-	remapper_disable(BUTTON_19);
-	remapper_disable(BUTTON_20);
-	remapper_disable(BUTTON_21);
-	// Only apply to the device on USB B
-	remapper_mask(RMP_USB_B);
-	// Disable EVERYTHING on 3DRudder except Left Joystick control
-	remapper_disable(BUTTON_1);
-	remapper_disable(BUTTON_2);
-	remapper_disable(BUTTON_3);
-	remapper_disable(BUTTON_4);
-	remapper_disable(BUTTON_5);
-	remapper_disable(BUTTON_6);
-	remapper_disable(BUTTON_7);
-	remapper_disable(BUTTON_8);
-	remapper_disable(BUTTON_9);
-	remapper_disable(BUTTON_10);
-	remapper_disable(BUTTON_11);
-	remapper_disable(BUTTON_12);
-	remapper_disable(BUTTON_13);
-	remapper_disable(BUTTON_14);
-	remapper_disable(BUTTON_15);
-	remapper_disable(BUTTON_16);
-	remapper_disable(BUTTON_17);
-	remapper_disable(BUTTON_18);
-	remapper_disable(BUTTON_19);
-	remapper_disable(BUTTON_20);
-	remapper_disable(BUTTON_21);
-	remapper_disable(STICK_1_X);
-	remapper_disable(STICK_1_Y);
-	remapper_disable(POINT_1_X);
-	remapper_disable(POINT_1_Y);
-	remapper_disable(POINT_2_X);
-	remapper_disable(POINT_2_Y);
-	remapper_disable(ACCEL_1_X);
-	remapper_disable(ACCEL_1_Y);
-	remapper_disable(ACCEL_1_Z);
-	remapper_disable(ACCEL_2_X);
-	remapper_disable(ACCEL_2_Y);
-	remapper_disable(ACCEL_2_Z);
-	remapper_disable(GYRO_1_X);
-	remapper_disable(GYRO_1_Y);
-	remapper_disable(GYRO_1_Z);
-	// Only apply to the device on USB A
-	remapper_mask(RMP_USB_A);
-}
-
 main {
+  static fix32 x_out, y_out;
+  static fix32 x_prev, y_prev;
 
+  fix32 valX = get_actual(STICK_2_X);
+  fix32 valY = get_actual(STICK_2_Y);
+
+  if(valY != y_prev || valX != x_prev) {
+    x_prev = valX, y_prev = valY;
+
+    fix32 xy_actual = sqrt(sq(valX) + sq(valY));
+    fix32 xy_out = (1.25) * xy_actual - (25f);
+
+    if(xy_actual < 30.0) y_out = 0.00, x_out = 0.00;
+    else {
+      x_out = clamp((valX * (xy_out / xy_actual)), -100.0, 100.0);
+      y_out = clamp((valY * (xy_out / xy_actual)), -100.0, 100.0);
+    }
+  }
+  set_val(STICK_2_X, x_out);
+  set_val(STICK_2_Y, y_out);
 }

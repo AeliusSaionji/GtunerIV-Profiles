@@ -1,0 +1,30 @@
+#pragma METAINFO("Deadzone and Limit", 1, 0, "Aelius")
+/**
+  * This code redefines the range of your joystick.
+  * NOTE! This is not a traditional deadzone.
+  * Instead of simply ignoring input below the specified value,
+  * we redefine the range 0-100 to start at DEADZONE and end at LIMIT.
+ **/
+
+#define DEADZONE 20.0
+#define LIMIT 65.0
+#define LIMITZONE (LIMIT-DEADZONE)
+
+main {
+	fix32 stickX = get_actual(STICK_2_X);
+	fix32 stickY = get_actual(STICK_2_Y);
+	fix32 hypnus = sqrt(sq(stickX) + sq(stickY));
+	
+	set_val(STICK_2_X,
+		clamp(
+			stickX/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0)
+		// clamp between -100 and 100, since 101 loops back to 1
+		,-100.0,100.0)
+	);
+	set_val(STICK_2_Y,
+		clamp(
+			stickY/hypnus * max((hypnus - DEADZONE) * (100.0 / LIMITZONE), 0.0)
+		// clamp between -100 and 100, since 101 loops back to 1
+		,-100.0,100.0)
+	);
+}

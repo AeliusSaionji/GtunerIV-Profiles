@@ -1,0 +1,15 @@
+#pragma METAINFO("PSNav As-Is", 1, 0, "Aelius")
+
+/*
+ * Use PSNav as is, no special handling.
+ * Presents as DS4.
+ */
+
+init {
+	// Set T2 LED red.
+	led_set(LED_2, 100.00, 0);
+	// Change the output protocol to not Xbox: avoid auth requirement
+    port_connect(PORT_USB_C, PROTOCOL_PS4); //PS4 or HID are valid
+}
+
+main {}
