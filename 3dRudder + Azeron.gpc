@@ -1,0 +1,59 @@
+#pragma METAINFO("3DRudder + Azeron", 1, 0, "Aelius")
+
+#include <remapper.gph>
+
+init {
+	// Set T2 LED.
+	led_set(LED_1, 25.00, 0);
+	led_set(LED_2, 75.00, 0);
+	led_set(LED_3, 25.00, 0);
+
+	// Disable EVERYTHING on 3DRudder except sticks + what they're swapped to
+	remapper_disable(BUTTON_1);
+	remapper_disable(BUTTON_2);
+	remapper_disable(BUTTON_3);
+	remapper_disable(BUTTON_4);
+	remapper_disable(BUTTON_5);
+	remapper_disable(BUTTON_6);
+	remapper_disable(BUTTON_7);
+	remapper_disable(BUTTON_8);
+	remapper_disable(BUTTON_9);
+	remapper_disable(BUTTON_10);
+	remapper_disable(BUTTON_11);
+	remapper_disable(BUTTON_12);
+	remapper_disable(BUTTON_13);
+	remapper_disable(BUTTON_14);
+	remapper_disable(BUTTON_15);
+	remapper_disable(BUTTON_16);
+	remapper_disable(BUTTON_17);
+	remapper_disable(BUTTON_18);
+	remapper_disable(BUTTON_19);
+	remapper_disable(BUTTON_20);
+	remapper_disable(BUTTON_21);
+	remapper_disable(STICK_1_X);
+	remapper_disable(STICK_1_Y);
+	//remapper_disable(STICK_2_X);
+	//remapper_disable(STICK_2_Y);
+	remapper_disable(POINT_1_X);
+	remapper_disable(POINT_1_Y);
+	remapper_disable(POINT_2_X);
+	remapper_disable(POINT_2_Y);
+	remapper_disable(ACCEL_1_X);
+	remapper_disable(ACCEL_1_Y);
+	remapper_disable(ACCEL_1_Z);
+	remapper_disable(ACCEL_2_X);
+	remapper_disable(ACCEL_2_Y);
+	remapper_disable(ACCEL_2_Z);
+	remapper_disable(GYRO_1_X);
+	remapper_disable(GYRO_1_Y);
+	remapper_disable(GYRO_1_Z);
+	// Swap stick 1 for unused buttons
+	remapper_swap(STICK_1_X,POINT_1_X);
+	remapper_swap(STICK_1_Y,POINT_1_Y);
+	// Only apply to the device on USB-A
+	remapper_mask(RMP_USB_A);
+}
+
+main {
+// Make use of POINT_1_X/Y maybe.
+}
