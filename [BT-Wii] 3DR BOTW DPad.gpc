@@ -1,96 +1,36 @@
 #pragma METAINFO("[BT-Wii] 3DR BOTW DPad", 1, 0, "Aelius")
 /**
-  * Bluetooth connect to WiiU or Wii
-  * Elite controller fixes (just ignoring the stupid T2 paddle assignments)
-  * 3DR fixes (disable all axis not in use to prevent interference)
-  * 3DR DPad controls on 2nd axis, mostly for Breath of the Wild
- **/
- 
-#include <remapper.gph>
+* Bluetooth connect to WiiU or Wii
+* 3DR DPad controls on 2nd axis, mostly for Breath of the Wild
+**/
+
+#include <ShrinkCurve.gph>
+#import "_3DR-LStick-B.git"
 
 init {
-	// Set T2 LED blue.
-	led_set(LED_1, 100.00, 0);
-    // Change the output protocol to Wii/WiiU over BT.
-    port_connect(PORT_BT_A, PROTOCOL_WII);
-	
-	/** Would that you could call remapper_mask more than once **/
-	// Disable special bindings for Xbox Elite paddles
-	//remapper_disable(BUTTON_18);
-	//remapper_disable(BUTTON_19);
-	//remapper_disable(BUTTON_20);
-	//remapper_disable(BUTTON_21);
-	// Only apply to the device on USB B
-	//remapper_mask(RMP_USB_B);
-	
-	// Disable EVERYTHING on 3DRudder except sticks + what they're swapped to
-	remapper_disable(BUTTON_1);
-	remapper_disable(BUTTON_2);
-	remapper_disable(BUTTON_3);
-	remapper_disable(BUTTON_4);
-	remapper_disable(BUTTON_5);
-	remapper_disable(BUTTON_6);
-	remapper_disable(BUTTON_7);
-	remapper_disable(BUTTON_8);
-	remapper_disable(BUTTON_9);
-	remapper_disable(BUTTON_10);
-	remapper_disable(BUTTON_11);
-	remapper_disable(BUTTON_12);
-	remapper_disable(BUTTON_13);
-	remapper_disable(BUTTON_14);
-	remapper_disable(BUTTON_15);
-	remapper_disable(BUTTON_16);
-	remapper_disable(BUTTON_17);
-	remapper_disable(BUTTON_18);
-	remapper_disable(BUTTON_19);
-	remapper_disable(BUTTON_20);
-	remapper_disable(BUTTON_21);
-	//remapper_disable(STICK_1_X);
-	//remapper_disable(STICK_1_Y);
-	//remapper_disable(STICK_2_X);
-	//remapper_disable(STICK_2_Y);
-	//remapper_disable(POINT_1_X);
-	//remapper_disable(POINT_1_Y);
-	remapper_disable(POINT_2_X);
-	remapper_disable(POINT_2_Y);
-	remapper_disable(ACCEL_1_X);
-	remapper_disable(ACCEL_1_Y);
-	remapper_disable(ACCEL_1_Z);
-	remapper_disable(ACCEL_2_X);
-	remapper_disable(ACCEL_2_Y);
-	remapper_disable(ACCEL_2_Z);
-	remapper_disable(GYRO_1_X);
-	remapper_disable(GYRO_1_Y);
-	remapper_disable(GYRO_1_Z);
-	// Swap stick 1 for unused buttons
-	remapper_swap(STICK_1_X,POINT_1_X);
-	remapper_swap(STICK_1_Y,POINT_1_Y);
-	// Only apply to the device on USB A
-	remapper_mask(RMP_USB_A);
+  led_set(LED_1, 100.00, 0); //Set T2 LED blue
+  port_connect(PORT_BT_A, PROTOCOL_WII); //Wii/WiiU BT out
+  remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
 }
 
 main {
-	// Disable Elite controller's paddle output, the shitty way
-	set_val(BUTTON_18, 0.0);
-	set_val(BUTTON_19, 0.0);
-	set_val(BUTTON_20, 0.0);
-	set_val(BUTTON_20, 0.0);
-	
-	/* 3DRudder Mappings */
-	// DPad Up = Left Toe
-    if(get_actual(POINT_1_X) <= -75.5) {
-		set_val(BUTTON_10, 100.0);
-    }
-	// DPad Down = Right Toe
-	else if(get_actual(POINT_1_X) >= 75.5) {
-		set_val(BUTTON_11, 100.0);
-	}
-	// DPad Left = Rotate Left
-	else if(get_actual(POINT_1_Y) <= -75.5) {
-		set_val(BUTTON_12, 100.0);
-    }
-	// DPad Right = Rotate Right
-	else if(get_actual(POINT_1_Y) >= 75.5) {
-		set_val(BUTTON_13, 100.0);
-	}
+  /* 3DRudder Mappings */
+  // DPad Up = Left Toe
+  if(get_actual(POINT_1_X) <= -75.5) {
+    set_val(BUTTON_10, 100.0);
+  }
+  // DPad Down = Right Toe
+  else if(get_actual(POINT_1_X) >= 75.5) {
+    set_val(BUTTON_11, 100.0);
+  }
+  // DPad Left = Rotate Left
+  else if(get_actual(POINT_1_Y) <= -75.5) {
+    set_val(BUTTON_12, 100.0);
+  }
+  // DPad Right = Rotate Right
+  else if(get_actual(POINT_1_Y) >= 75.5) {
+    set_val(BUTTON_13, 100.0);
+  }
+  
+  ShrinkCurve();
 }

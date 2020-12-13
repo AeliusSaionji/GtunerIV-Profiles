@@ -1,0 +1,11 @@
+#pragma METAINFO("3DR-LStick on B", 1, 0, "Aelius")
+
+#include <ShrinkCurve.gph>
+#import "_3DR-LStick-B.git"
+
+init {
+  remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
+}
+main {
+  ShrinkCurve();
+}

@@ -1,0 +1,24 @@
+#pragma once
+uint8 ldLock;
+uint8 rdLock;
+uint8 udLock;
+
+// TODO: add argument to define which directions to apply to
+
+void StickyDPad() {
+  // 'A' or 'B' unholds any DPad
+  if (event_active(BUTTON_15) || event_active(BUTTON_16))
+    ldLock = rdLock = udLock = 0;
+
+  // PADDLE_2 + DPad holds DPad, but only one
+  if (get_val(PADDLE_2)) {
+    if (get_val(BUTTON_12) && !(rdLock || udLock)) ldLock = 1;
+    if (get_val(BUTTON_13) && !(ldLock || udLock)) rdLock = 1;
+    if (get_val(BUTTON_10) && !(ldLock || rdLock)) udLock = 1;
+  }
+
+  //  Keep DPad held
+  if (ldLock) set_val(BUTTON_12, 100.0);
+  if (rdLock) set_val(BUTTON_13, 100.0);
+  if (udLock) set_val(BUTTON_10, 100.0);
+}

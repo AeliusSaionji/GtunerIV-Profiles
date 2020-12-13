@@ -1,0 +1,50 @@
+#pragma METAINFO("SteamController as DS4 BOTW", 1, 0, "Aelius")
+
+/**
+* DS4 USB out, use DS4Windows to handle gyro and DSUserver
+**/
+
+#include <StickyDPad.gph>
+#include <ShrinkCurve.gph>
+#import "_3DR-LStick-B.git"
+
+init {
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
+  led_set(LED_1, 100.00, 0); //Set T2 LED blue
+  remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
+}
+
+main {
+  // Remove SteamController native R3
+  set_val(BUTTON_6, 0.0);
+  // Map Right Paddle to L2
+  if (is_active(PADDLE_2)) {
+    set_val(BUTTON_8, 100.0);
+    // If PADDLE_2+Right Touchpad Click...
+    if (get_actual(BUTTON_20)==100.0) {
+      // Send DPad Up
+      if (get_actual(POINT_2_Y)<-50.0) set_val(BUTTON_10, 100.0);
+      // Send DPad Down
+      else if (get_actual(POINT_2_Y)>50.0) set_val(BUTTON_11, 100.0);
+      // Send DPad Left
+      else if (get_actual(POINT_2_X)<-50.0) set_val(BUTTON_12, 100.0);
+      // Send DPad Right
+      else if (get_actual(POINT_2_X)>50.0) set_val(BUTTON_13, 100.0);
+      // Send L1
+      else set_val(BUTTON_7, 100.0);
+    }
+  // Map Right Touchpad Click to R3 if ! PADDLE_2
+  } else if (get_actual(BUTTON_20)==100.0) set_val(BUTTON_6, 100.0);
+  
+  // BUTTON_19 indicates finger is on left touchpad
+  // Map it as LStick when in use.
+  if (is_active(BUTTON_19)) {
+    set_val(STICK_2_X, get_val(POINT_1_X));
+    set_val(STICK_2_Y, get_val(POINT_1_Y));
+  }
+  // Pointer doesn't zero itself, so let's do that
+  else set_val(POINT_1_X, 0.0), set_val(POINT_1_Y, 0.0);
+  
+  // PADDLE_2+DPad sticks DPad, release with A or B
+  StickyDPad();
+}
