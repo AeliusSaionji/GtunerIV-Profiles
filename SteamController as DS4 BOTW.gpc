@@ -46,4 +46,5 @@ main {
   else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center inactive LPAD
   
   StickyDPad(); //RPADDLE+DPad sticky DPad, release with A or B
+  ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
 }
