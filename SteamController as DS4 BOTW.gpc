@@ -1,50 +1,49 @@
 #pragma METAINFO("SteamController as DS4 BOTW", 1, 0, "Aelius")
 
 /**
-* DS4 USB out, use DS4Windows to handle gyro and DSUserver
+ * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+ * SteamController's TOUCHED values read as 50.2 when finger is present..
+   * and 100.0 when clicking in the physical button.
+ * Some non obvious internally hardcoded and redundant mappings exist:
+   * RPAD is bound to RX and RY - AND the RPAD pointer
+   * LPAD is NOT bound to LX or LY
+   * RPAD and RX, RY zero while not in use
+   * LPAD does NOT zero while not in use
+   * TOUCHED_R @ 100.0 is bound to R3
+   * TOUCHED_L @ 100.0 has sensible DPAD mappings, but NO L3
 **/
 
+#include <SteamControllerDefinitions.gph>
 #include <StickyDPad.gph>
 #include <ShrinkCurve.gph>
 #import "_3DR-LStick-B.git"
 
 init {
   port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
-  led_set(LED_1, 100.00, 0); //Set T2 LED blue
-  remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
+  led_set(LED_1, 100.00, 0);              //Set T2 LED blue
+  remapper(_3DR_LStick_B_cmap);           //Process 3DR remap (Port B)
 }
 
 main {
-  // Remove SteamController native R3
-  set_val(BUTTON_6, 0.0);
-  // Map Right Paddle to L2
-  if (is_active(PADDLE_2)) {
-    set_val(BUTTON_8, 100.0);
-    // If PADDLE_2+Right Touchpad Click...
-    if (get_actual(BUTTON_20)==100.0) {
-      // Send DPad Up
-      if (get_actual(POINT_2_Y)<-50.0) set_val(BUTTON_10, 100.0);
-      // Send DPad Down
-      else if (get_actual(POINT_2_Y)>50.0) set_val(BUTTON_11, 100.0);
-      // Send DPad Left
-      else if (get_actual(POINT_2_X)<-50.0) set_val(BUTTON_12, 100.0);
-      // Send DPad Right
-      else if (get_actual(POINT_2_X)>50.0) set_val(BUTTON_13, 100.0);
-      // Send L1
-      else set_val(BUTTON_7, 100.0);
+  set_val(SC_R3, 0.0);                    //Suppress native R3
+  if (is_active(SC_RPADDLE)) {            //While RPADDLE
+    set_val(SC_L2, 100.0);                  //Map RPADDLE to L2
+    if (get_actual(SC_RTOUCHED)==100.0) { //While RPADDLE+R3
+                                            //Map RPAD to DPad, L1
+      if (get_actual(SC_RPAD_Y)<-50.0) set_val(SC_UP, 100.0);
+      else if (get_actual(SC_RPAD_Y)>50.0) set_val(SC_DOWN, 100.0);
+      else if (get_actual(SC_RPAD_X)<-50.0) set_val(SC_LEFT, 100.0);
+      else if (get_actual(SC_RPAD_X)>50.0) set_val(SC_RIGHT, 100.0);
+      else set_val(SC_L1, 100.0);
     }
-  // Map Right Touchpad Click to R3 if ! PADDLE_2
-  } else if (get_actual(BUTTON_20)==100.0) set_val(BUTTON_6, 100.0);
+  } else if (get_actual(SC_RTOUCHED)==100.0) //If not SC_RPADDLE
+      set_val(SC_R3, 100.0);                   //Map R3 to R3
   
-  // BUTTON_19 indicates finger is on left touchpad
-  // Map it as LStick when in use.
-  if (is_active(BUTTON_19)) {
-    set_val(STICK_2_X, get_val(POINT_1_X));
-    set_val(STICK_2_Y, get_val(POINT_1_Y));
+  if (is_active(SC_LTOUCHED)) {       //While LPAD in use
+    set_val(SC_LX, get_val(SC_LPAD_X)); //Map LPAD to LX LY
+    set_val(SC_LY, get_val(SC_LPAD_Y));
   }
-  // Pointer doesn't zero itself, so let's do that
-  else set_val(POINT_1_X, 0.0), set_val(POINT_1_Y, 0.0);
+  else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center untouched LPAD
   
-  // PADDLE_2+DPad sticks DPad, release with A or B
-  StickyDPad();
+  StickyDPad(); // RPADDLE+DPad sticky DPad, release with A or B
 }

@@ -1,0 +1,58 @@
+/**
+ * SteamController's TOUCHED values read as 50.2 when finger is present..
+   * and 100.0 when clicking in the physical button.
+ * Some non obvious internally hardcoded and redundant mappings exist:
+   * RPAD is bound to RX and RY - AND the RPAD pointer
+   * LPAD is NOT bound to LX or LY
+   * RPAD and RX, RY zero while not in use
+   * LPAD does NOT zero while not in use
+   * TOUCHED_R @ 100.0 is bound to R3
+   * TOUCHED_L @ 100.0 has sensible DPAD mappings, but NO L3
+**/
+
+#ifndef SC_GPH_
+#define SC_GPH_
+
+#define SC_HOME        BUTTON_1
+#define SC_SELECT      BUTTON_2
+#define SC_START       BUTTON_3
+#define SC_R1          BUTTON_4
+#define SC_R2          BUTTON_5
+#define SC_R3          BUTTON_6
+#define SC_L1          BUTTON_7
+#define SC_L2          BUTTON_8
+#define SC_L3          BUTTON_9
+#define SC_UP          BUTTON_10
+#define SC_DOWN        BUTTON_11
+#define SC_LEFT        BUTTON_12
+#define SC_RIGHT       BUTTON_13
+#define SC_Y           BUTTON_14
+#define SC_B           BUTTON_15
+#define SC_A           BUTTON_16
+#define SC_X           BUTTON_17
+//#define SC_SHARE       BUTTON_18 // not a thing on SC?
+#define SC_LTOUCHED    BUTTON_19
+#define SC_RTOUCHED    BUTTON_20
+
+#define SC_RX          STICK_1_X
+#define SC_RY          STICK_1_Y
+#define SC_LX          STICK_2_X
+#define SC_LY          STICK_2_Y
+
+#define SC_LPAD_X      POINT_1_X
+#define SC_LPAD_Y      POINT_1_Y
+#define SC_RPAD_X      POINT_2_X
+#define SC_RPAD_Y      POINT_2_Y
+
+#define SC_LPADDLE     PADDLE_1
+#define SC_RPADDLE     PADDLE_2
+
+#define SC_ACCX        ACCEL_1_X
+#define SC_ACCY        ACCEL_1_Y
+#define SC_ACCZ        ACCEL_1_Z
+
+#define SC_GYROX       GYRO_1_X
+#define SC_GYROY       GYRO_1_Y
+#define SC_GYROZ       GYRO_1_Z
+
+#endif /* SC_GPH_ */
