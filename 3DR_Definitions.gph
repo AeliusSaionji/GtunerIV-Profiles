@@ -1,0 +1,17 @@
+/**
+ * 3DR has four axes and nothing else
+ * Titan will, however, erroneously read trigger activation
+**/
+
+#ifndef _3DR_GPH_
+#define _3DR_GPH_
+
+#define _3DR_BAD1        BUTTON_5
+#define _3DR_BAD2        BUTTON_8
+
+#define _3DR_TOE         STICK_1_X
+#define _3DR_YAW         STICK_1_Y
+#define _3DR_ROLL        STICK_2_X
+#define _3DR_PITCH       STICK_2_Y
+
+#endif /* _3DR_GPH_ */
