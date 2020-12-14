@@ -36,14 +36,14 @@ main {
       else if (get_actual(SC_RPAD_X)>50.0) set_val(SC_RIGHT, 100.0);
       else set_val(SC_L1, 100.0);
     }
-  } else if (get_actual(SC_RTOUCHED)==100.0) //If not SC_RPADDLE
+  } else if (get_actual(SC_RTOUCHED)==100.0) //While RPADDLE not active
       set_val(SC_R3, 100.0);                   //Map R3 to R3
   
   if (is_active(SC_LTOUCHED)) {       //While LPAD in use
     set_val(SC_LX, get_val(SC_LPAD_X)); //Map LPAD to LX LY
     set_val(SC_LY, get_val(SC_LPAD_Y));
   }
-  else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center untouched LPAD
+  else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center inactive LPAD
   
-  StickyDPad(); // RPADDLE+DPad sticky DPad, release with A or B
+  StickyDPad(); //RPADDLE+DPad sticky DPad, release with A or B
 }
