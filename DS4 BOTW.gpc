@@ -1,0 +1,53 @@
+#pragma METAINFO("DS4 BOTW", 1, 0, "Aelius")
+
+/**
+ * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+**/
+
+#include <ps4.gph>
+#include <ShrinkCurve.gph>
+#import "_3DR-LStick-B.git"
+
+init {
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
+  led_set(LED_1, 100.00, 0);              //Set T2 LED blue
+  remapper(_3DR_LStick_B_cmap);           //Process 3DR remap (Port B)
+}
+
+main {
+  if (is_active(PS4_L2)) {                //While L2
+                                            //Map RPAD to DPad
+    if (get_actual(PS4_RY)<-50.0) set_val(PS4_UP, 100.0);
+    else if (get_actual(PS4_RY)>50.0) set_val(PS4_DOWN, 100.0);
+    else if (get_actual(PS4_RX)<-50.0) set_val(PS4_LEFT, 100.0);
+    else if (get_actual(PS4_RX)>50.0) set_val(PS4_RIGHT, 100.0);
+  }
+  if (is_active(PS4_R1)) {                //While R1
+    if (is_active(PS4_CROSS)) set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
+  }
+  
+  StickyDPad(); //RPADDLE+DPad sticky DPad, release with A or B
+  //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
+}
+
+//Not using include, DS4 addon paddle isn't detected
+uint8 ldLock;
+uint8 rdLock;
+uint8 udLock;
+void StickyDPad() {
+  //'A' or 'B' unholds any DPad
+  if (event_active(PS4_CIRCLE) || event_active(PS4_CROSS))
+    ldLock = rdLock = udLock = 0;
+
+  // + DPad holds DPad, but only one
+  if (get_val(PS4_L2)) {
+    if (get_val(PS4_LEFT) && !(rdLock || udLock)) ldLock = 1;
+    if (get_val(PS4_RIGHT) && !(ldLock || udLock)) rdLock = 1;
+    if (get_val(PS4_UP) && !(ldLock || rdLock)) udLock = 1;
+  }
+
+  //Keep DPad held
+  if (ldLock) set_val(PS4_LEFT, 100.0);
+  if (rdLock) set_val(PS4_RIGHT, 100.0);
+  if (udLock) set_val(PS4_UP, 100.0);
+}
