@@ -7,6 +7,7 @@
   * we redefine the range 0-100 to start at DEADZONE and end at LIMIT.
  **/
  
+// TODO: clamp makes joystick square! BAD!
 // TODO: accept argument for which stick to use
 
 #define JOY_X STICK_2_X
