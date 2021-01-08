@@ -29,15 +29,17 @@ main {
   if (is_active(SC_RPADDLE)) {            //While RPADDLE
     set_val(SC_L2, 100.0);                  //Map RPADDLE to L2
     if (get_actual(SC_RTOUCHED)==100.0) { //While RPADDLE+R3
-                                            //Map RPAD to DPad, L1
+                                            //Map RPAD to DPad
       if (get_actual(SC_RPAD_Y)<-50.0) set_val(SC_UP, 100.0);
       else if (get_actual(SC_RPAD_Y)>50.0) set_val(SC_DOWN, 100.0);
       else if (get_actual(SC_RPAD_X)<-50.0) set_val(SC_LEFT, 100.0);
       else if (get_actual(SC_RPAD_X)>50.0) set_val(SC_RIGHT, 100.0);
-      else set_val(SC_L1, 100.0);
     }
   } else if (get_actual(SC_RTOUCHED)==100.0) //While RPADDLE not active
       set_val(SC_R3, 100.0);                   //Map R3 to R3
+  
+  if (is_active(SC_R1))                                           //While R1
+    if (is_active(SC_A)) set_val(SC_A, 0.0), set_val(SC_L1, 100.0); //A is L1
   
   if (is_active(SC_LTOUCHED)) {       //While LPAD in use
     set_val(SC_LX, get_val(SC_LPAD_X)); //Map LPAD to LX LY
@@ -46,5 +48,5 @@ main {
   else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center inactive LPAD
   
   StickyDPad(); //RPADDLE+DPad sticky DPad, release with A or B
-  ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
+  //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
 }
