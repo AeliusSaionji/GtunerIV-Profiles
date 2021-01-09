@@ -1,10 +1,10 @@
 #pragma METAINFO("SteamController as DS4 BOTW", 1, 0, "Aelius")
 
 /**
- * DS4 USB out, use DS4Windows to handle gyro and DSUserver
- * SteamController's TOUCHED values read as 50.2 when finger is present..
+  * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+  * SteamController's TOUCHED values read as 50.2 when finger is present..
    * and 100.0 when clicking in the physical button.
- * Some non obvious internally hardcoded and redundant mappings exist:
+  * Some non obvious internally hardcoded and redundant mappings exist:
    * RPAD is bound to RX and RY - AND the RPAD pointer
    * LPAD is NOT bound to LX or LY
    * RPAD and RX, RY zero while not in use
@@ -14,7 +14,7 @@
 **/
 
 #include <SteamControllerDefinitions.gph>
-#include <ShrinkCurve.gph>
+//#include <ShrinkCurve.gph>
 #import "_3DR-LStick-B.git"
 #include <StickyDPad.gph>
 // StickyDPad enable for directions:

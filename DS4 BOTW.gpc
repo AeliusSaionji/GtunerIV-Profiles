@@ -1,12 +1,12 @@
 #pragma METAINFO("DS4 BOTW", 1, 0, "Aelius")
 
 /**
- * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+  * DS4 USB out, use DS4Windows to handle gyro and DSUserver
 **/
 
 #import "_3DR-LStick-B.git"
 #include <ps4.gph>
-#include <ShrinkCurve.gph>
+//#include <ShrinkCurve.gph>
 #include <StickyDPad.gph>
 // StickyDPad enable for directions:
 #define up    1

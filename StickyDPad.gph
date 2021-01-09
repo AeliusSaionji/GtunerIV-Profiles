@@ -1,8 +1,8 @@
 #pragma once
 
 /**
- * Function to make DPad sticky when pressed as a chord with another button
- * Parameters: gpc designator BUTTON_ for chord,
+  * Function to make DPad sticky when pressed as a chord with another button
+  * Parameters: gpc designator BUTTON_ for chord,
    * and a true/false expressed as an int for each direction that should stick
 **/
 
