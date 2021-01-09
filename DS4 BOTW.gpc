@@ -6,7 +6,7 @@
 
 #import "_3DR-LStick-B.git"
 #include <ps4.gph>
-//#include <ShrinkCurve.gph>
+#include <ShrinkCurve.gph>
 #include <StickyDPad.gph>
 // StickyDPad enable for directions:
 #define up    1
@@ -35,7 +35,8 @@ main {
       set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
   }
 
-  //L2+DPad == sticky DPad, unstick with A or B
+  /* L2+DPad == sticky DPad, unstick with A or B */
   StickyDPad(PS4_L2, up, down, left, right);
-  //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
+  /* Increase deadzone, reach 100.0 sooner on LX and LY */
+  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
 }

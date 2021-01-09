@@ -14,7 +14,7 @@
 **/
 
 #include <SteamControllerDefinitions.gph>
-//#include <ShrinkCurve.gph>
+#include <ShrinkCurve.gph>
 #import "_3DR-LStick-B.git"
 #include <StickyDPad.gph>
 // StickyDPad enable for directions:
@@ -52,7 +52,8 @@ main {
   }
   else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center inactive LPAD
   
-  //RPADDLE+DPad == sticky DPad, unstick with A or B
+  /* RPADDLE+DPad == sticky DPad, unstick with A or B */
   StickyDPad(SC_RPADDLE, up, down, left, right);
-  //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
+  /* Increase deadzone, reach 100.0 sooner on LX and LY */
+  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
 }
