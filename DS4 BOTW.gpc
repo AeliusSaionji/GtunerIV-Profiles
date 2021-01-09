@@ -28,10 +28,13 @@ main {
     else if (get_actual(PS4_RX)<-50.0) set_val(PS4_LEFT, 100.0);
     else if (get_actual(PS4_RX)>50.0) set_val(PS4_RIGHT, 100.0);
   }
-  if (is_active(PS4_R1)) {                //While R1
-    if (is_active(PS4_CROSS)) set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
-  }
   
+  //Chord R1+Cross == L1
+  if (is_active(PS4_R1)) {
+    if (is_active(PS4_CROSS))
+      set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
+  }
+
   //L2+DPad == sticky DPad, unstick with A or B
   StickyDPad(PS4_L2, up, down, left, right);
   //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
