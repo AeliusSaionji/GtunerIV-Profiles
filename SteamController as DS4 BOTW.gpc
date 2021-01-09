@@ -14,9 +14,14 @@
 **/
 
 #include <SteamControllerDefinitions.gph>
-#include <StickyDPad.gph>
 #include <ShrinkCurve.gph>
 #import "_3DR-LStick-B.git"
+#include <StickyDPad.gph>
+// StickyDPad enable for directions:
+#define up    1
+#define down  0
+#define left  1
+#define right 1
 
 init {
   port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
@@ -47,6 +52,7 @@ main {
   }
   else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center inactive LPAD
   
-  StickyDPad(SC_RPADDLE); //RPADDLE+DPad sticky DPad, release with A or B
+  //RPADDLE+DPad == sticky DPad, unstick with A or B
+  StickyDPad(SC_RPADDLE, up, down, left, right);
   //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
 }

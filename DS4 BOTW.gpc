@@ -4,10 +4,15 @@
  * DS4 USB out, use DS4Windows to handle gyro and DSUserver
 **/
 
+#import "_3DR-LStick-B.git"
 #include <ps4.gph>
 #include <ShrinkCurve.gph>
 #include <StickyDPad.gph>
-#import "_3DR-LStick-B.git"
+// StickyDPad enable for directions:
+#define up    1
+#define down  0
+#define left  1
+#define right 1
 
 init {
   port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
@@ -27,6 +32,7 @@ main {
     if (is_active(PS4_CROSS)) set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
   }
   
-  StickyDPad(PS4_L2); //PARAM+DPad sticky DPad, release with A or B
+  //L2+DPad == sticky DPad, unstick with A or B
+  StickyDPad(PS4_L2, up, down, left, right);
   //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
 }
