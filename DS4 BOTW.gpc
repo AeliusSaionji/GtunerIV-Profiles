@@ -6,6 +6,7 @@
 
 #include <ps4.gph>
 #include <ShrinkCurve.gph>
+#include <StickyDPad.gph>
 #import "_3DR-LStick-B.git"
 
 init {
@@ -26,28 +27,6 @@ main {
     if (is_active(PS4_CROSS)) set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
   }
   
-  StickyDPad(); //RPADDLE+DPad sticky DPad, release with A or B
+  StickyDPad(PS4_L2); //PARAM+DPad sticky DPad, release with A or B
   //ShrinkCurve(); //Increase deadzone, reach 100.0 sooner on LX and LY
-}
-
-//Not using include, DS4 addon paddle isn't detected
-uint8 ldLock;
-uint8 rdLock;
-uint8 udLock;
-void StickyDPad() {
-  //'A' or 'B' unholds any DPad
-  if (event_active(PS4_CIRCLE) || event_active(PS4_CROSS))
-    ldLock = rdLock = udLock = 0;
-
-  // + DPad holds DPad, but only one
-  if (get_val(PS4_L2)) {
-    if (get_val(PS4_LEFT) && !(rdLock || udLock)) ldLock = 1;
-    if (get_val(PS4_RIGHT) && !(ldLock || udLock)) rdLock = 1;
-    if (get_val(PS4_UP) && !(ldLock || rdLock)) udLock = 1;
-  }
-
-  //Keep DPad held
-  if (ldLock) set_val(PS4_LEFT, 100.0);
-  if (rdLock) set_val(PS4_RIGHT, 100.0);
-  if (udLock) set_val(PS4_UP, 100.0);
 }
