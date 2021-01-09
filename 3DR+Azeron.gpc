@@ -1,0 +1,14 @@
+#pragma METAINFO("3DR+Azeron", 1, 0, "<author_name>")
+
+#include <ShrinkCurve.gph>
+//#import "_3DR-LStick-B.git"
+#import "AzeronJoyFix.git"
+
+init {
+  //remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
+  remapper(AzeronJoyFix_cmap);
+}
+main {
+  /* Increase deadzone, reach 100.0 sooner on LX and LY */
+  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
+}
