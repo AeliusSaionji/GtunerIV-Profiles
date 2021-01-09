@@ -7,19 +7,13 @@
   * we redefine the range 0-100 to start at DEADZONE and end at LIMIT.
  **/
  
-// TODO: clamp makes joystick square! BAD!
-// TODO: accept argument for which stick to use
+// TODO: clamp makes joystick square?
 
-#define JOY_X STICK_2_X
-#define JOY_Y STICK_2_Y
-#define DEADZONE 20.0
-#define LIMIT 65.0
-#define LIMITZONE (LIMIT-DEADZONE)
-
-void ShrinkCurve() {
+void ShrinkCurve(uint8 JOY_X, uint8 JOY_Y, fix32 DEADZONE, fix32 LIMIT) {
 	fix32 stickX = get_actual(JOY_X);
 	fix32 stickY = get_actual(JOY_Y);
 	fix32 hypnus = sqrt(sq(stickX) + sq(stickY));
+  fix32 LIMITZONE = LIMIT-DEADZONE;
 	
 	set_val(JOY_X,
 		clamp(

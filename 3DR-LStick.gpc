@@ -7,5 +7,5 @@ init {
   remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
 }
 main {
-  ShrinkCurve();
+  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
 }
