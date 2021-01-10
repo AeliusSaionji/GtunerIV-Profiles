@@ -1,0 +1,20 @@
+#pragma once
+
+/**
+  * 3DR is erroneously detected with trigger input
+  * Usually triggers are locked to 50%, but J2Kbr attempted a fix
+  * The fix however is imperfect, and there is still an activation of
+  * 0.00152587890625
+  * This still unfortunately blocks the use of triggers.
+  * This function must be used to squelch the triggers until J2Kbr
+  * finds time to redo the fix.
+  * If you don't have the SDCard configured, the triggers may still be locked
+  * at a value of around 50%, and this function will need to be adapted.
+**/
+
+void _3DR_TriggerFix() {
+  if (get_actual(BUTTON_5)<0.002)
+    set_val(BUTTON_5, 0.0);
+  if (get_actual(BUTTON_8)<0.002)
+    set_val(BUTTON_8, 0.0);
+}
