@@ -1,5 +1,6 @@
 #pragma METAINFO("3DR+Azeron", 1, 0, "<author_name>")
 
+#include <_3DR_TriggerFix.gph>
 #include <ShrinkCurve.gph>
 //#import "_3DR-LStick-B.git"
 #import "AzeronJoyFix.git"
@@ -11,4 +12,5 @@ init {
 main {
   /* Increase deadzone, reach 100.0 sooner on LX and LY */
   ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
+  _3DR_TriggerFix();
 }
