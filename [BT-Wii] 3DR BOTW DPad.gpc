@@ -4,7 +4,7 @@
 * 3DR DPad controls on 2nd axis, mostly for Breath of the Wild
 **/
 
-#include <ShrinkCurve.gph>
+#include "./include/ShrinkCurve.gph"
 #import "_3DR-LStick-B.git"
 
 init {

@@ -2,6 +2,7 @@
 
 /**
   * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+  * 3DR curve is handled by CEMU! No need for shrinkcurve.
   * SteamController's TOUCHED values read as 50.2 when finger is present..
    * and 100.0 when clicking in the physical button.
   * Some non obvious internally hardcoded and redundant mappings exist:
@@ -13,10 +14,10 @@
    * TOUCHED_L @ 100.0 has sensible DPAD mappings, but NO L3
 **/
 
-#include <SteamControllerDefinitions.gph>
-#include <ShrinkCurve.gph>
+#include "./include/SteamControllerDefinitions.gph"
+//#include "./include/ShrinkCurve.gph" //Handled by CEMU
 #import "_3DR-LStick-B.git"
-#include <StickyDPad.gph>
+#include "./include/StickyDPad.gph"
 // StickyDPad enable for directions:
 #define up    1
 #define down  0
@@ -55,5 +56,5 @@ main {
   /* RPADDLE+DPad == sticky DPad, unstick with A or B */
   StickyDPad(SC_RPADDLE, up, down, left, right);
   /* Increase deadzone, reach 100.0 sooner on LX and LY */
-  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
+  //ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
 }

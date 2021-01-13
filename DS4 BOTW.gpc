@@ -2,12 +2,13 @@
 
 /**
   * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+  * 3DR curve is handled by CEMU! No need for shrinkcurve.
 **/
 
 #import "_3DR-LStick-B.git"
 #include <ps4.gph>
-#include <ShrinkCurve.gph>
-#include <StickyDPad.gph>
+//#include "./include/ShrinkCurve.gph" //Handled by CEMU
+#include "./include/StickyDPad.gph"
 // StickyDPad enable for directions:
 #define up    1
 #define down  0
@@ -38,5 +39,5 @@ main {
   /* L2+DPad == sticky DPad, unstick with A or B */
   StickyDPad(PS4_L2, up, down, left, right);
   /* Increase deadzone, reach 100.0 sooner on LX and LY */
-  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
+  //ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
 }

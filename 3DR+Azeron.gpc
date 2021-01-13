@@ -1,13 +1,13 @@
 #pragma METAINFO("3DR+Azeron", 1, 0, "<author_name>")
 
-#include <_3DR_TriggerFix.gph>
-#include <ShrinkCurve.gph>
+#include "./include/_3DR_TriggerFix.gph"
+#include "./include/ShrinkCurve.gph"
 //#import "_3DR-LStick-B.git"
-#import "AzeronJoyFix.git"
+#import "AzeronEtGJoyFix.git"
 
 init {
   //remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
-  remapper(AzeronJoyFix_cmap);
+  remapper(AzeronEtGJoyFix_cmap);
 }
 main {
   /* Increase deadzone, reach 100.0 sooner on LX and LY */
