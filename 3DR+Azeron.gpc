@@ -3,7 +3,7 @@
 #include "./include/_3DR_TriggerFix.gph"
 #include "./include/ShrinkCurve.gph"
 //#import "_3DR-LStick-B.git"
-#import "AzeronEtGJoyFix.git"
+#import "./git/AzeronEtGJoyFix.git"
 
 init {
   //remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)

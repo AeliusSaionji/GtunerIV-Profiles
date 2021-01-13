@@ -5,7 +5,7 @@
 **/
 
 #include "./include/ShrinkCurve.gph"
-#import "_3DR-LStick-B.git"
+#import "./git/_3DR-LStick-B.git"
 
 init {
   led_set(LED_1, 100.00, 0); //Set T2 LED blue

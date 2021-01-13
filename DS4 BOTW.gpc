@@ -5,7 +5,7 @@
   * 3DR curve is handled by CEMU! No need for shrinkcurve.
 **/
 
-#import "_3DR-LStick-B.git"
+#import "./git/_3DR-LStick-B.git"
 #include <ps4.gph>
 //#include "./include/ShrinkCurve.gph" //Handled by CEMU
 #include "./include/StickyDPad.gph"

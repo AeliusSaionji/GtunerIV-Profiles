@@ -16,7 +16,7 @@
 
 #include "./include/SteamControllerDefinitions.gph"
 //#include "./include/ShrinkCurve.gph" //Handled by CEMU
-#import "_3DR-LStick-B.git"
+#import "./git/_3DR-LStick-B.git"
 #include "./include/StickyDPad.gph"
 // StickyDPad enable for directions:
 #define up    1

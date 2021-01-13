@@ -8,7 +8,7 @@
 **/
 
 #include <ps4.gph>
-#import "_3DR-Paddle-B.git"
+#import "./git/_3DR-Paddle-B.git"
 #define _3DR_ROLL  PADDLE_3
 #define _3DR_PITCH PADDLE_4
 
