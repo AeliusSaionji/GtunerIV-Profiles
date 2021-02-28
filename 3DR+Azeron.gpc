@@ -1,16 +1,16 @@
 #pragma METAINFO("3DR+Azeron", 1, 0, "<author_name>")
 
-#include "./include/_3DR_TriggerFix.gph"
 #include "./include/ShrinkCurve.gph"
-//#import "_3DR-LStick-B.git"
-#import "./git/AzeronEtGJoyFix.git"
+#import "./git/_3DR-LStick-B.git"
 
 init {
-  //remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
-  remapper(AzeronEtGJoyFix_cmap);
+  remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
 }
 main {
+  // Can onlx process one remap at a time...
+  // So, gotta fix Azeron bug this way
+  set_val(STICK_1_X,get_actual(STICK_1_Y));
+  set_val(STICK_1_Y,get_actual(STICK_1_X));
   /* Increase deadzone, reach 100.0 sooner on LX and LY */
   ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
-  _3DR_TriggerFix();
 }
