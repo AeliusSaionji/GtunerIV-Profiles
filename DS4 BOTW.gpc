@@ -7,7 +7,6 @@
 
 #import "./git/_3DR-LStick-B.git"
 #include <ps4.gph>
-//#include "./include/ShrinkCurve.gph" //Handled by CEMU
 #include "./include/StickyDPad.gph"
 // StickyDPad enable for directions:
 #define up    1
@@ -17,27 +16,22 @@
 
 init {
   port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
-  led_set(LED_1, 100.00, 0);              //Set T2 LED blue
+  led_set(LED_1, 100.0, 0);              //Set T2 LED blue
   remapper(_3DR_LStick_B_cmap);           //Process 3DR remap (Port B)
 }
 
 main {
-  if (is_active(PS4_L2)) {                //While L2
-                                            //Map RPAD to DPad
-    if (get_actual(PS4_RY)<-50.0) set_val(PS4_UP, 100.0);
-    else if (get_actual(PS4_RY)>50.0) set_val(PS4_DOWN, 100.0);
-    else if (get_actual(PS4_RX)<-50.0) set_val(PS4_LEFT, 100.0);
-    else if (get_actual(PS4_RX)>50.0) set_val(PS4_RIGHT, 100.0);
-  }
-  
-  //Chord R1+Cross == L1
-  if (is_active(PS4_R1)) {
-    if (is_active(PS4_CROSS))
-      set_val(PS4_CROSS, 0.0), set_val(PS4_L1, 100.0);
+  if (is_active(PS4_L2)) {
+    set_val(PS4_L1, 0.0); //Suppress rune while holding L2
+    if (is_active(PS4_L1)) { //While L2+L1
+                               //Map RPAD to DPad
+      if (get_actual(PS4_RY)<-50.0) set_val(PS4_UP, 100.0);
+      else if (get_actual(PS4_RY)>50.0) set_val(PS4_DOWN, 100.0);
+      else if (get_actual(PS4_RX)<-50.0) set_val(PS4_LEFT, 100.0);
+      else if (get_actual(PS4_RX)>50.0) set_val(PS4_RIGHT, 100.0);
+    }
   }
 
   /* L2+DPad == sticky DPad, unstick with A or B */
   StickyDPad(PS4_L2, up, down, left, right);
-  /* Increase deadzone, reach 100.0 sooner on LX and LY */
-  //ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
 }

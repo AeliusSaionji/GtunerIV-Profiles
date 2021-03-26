@@ -24,8 +24,8 @@ void StickyDPad(uint8 chord, uint8 up, uint8 down, uint8 left, uint8 right) {
   }
 
   //Keep DPad held down.
-    //BUTTON_9's index value is 8. The DPad thus exists in...
-    //the index as 9, 10, 11, and 12. Which corresponds to buttons:
+    //BUTTON_9's index value is 8. The DPad thus exists in the
+    //index as 9, 10, 11, and 12. These correspond to buttons:
     //10 (up), 11 (down), 12 (left), and 13 (right).
     //lock is either 0 and the if statement fails,
     //or at least 1 and at most 4.
