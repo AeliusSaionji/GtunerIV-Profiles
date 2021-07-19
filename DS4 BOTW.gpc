@@ -16,7 +16,7 @@
 
 init {
   port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
-  led_set(LED_1, 100.0, 0);              //Set T2 LED blue
+  led_set(LED_1, 100.0, 0);               //Set T2 LED blue
   remapper(_3DR_LStick_B_cmap);           //Process 3DR remap (Port B)
 }
 
