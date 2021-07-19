@@ -1,0 +1,19 @@
+#pragma METAINFO("DS4+Adaptive BOTW", 1, 0, "Aelius")
+
+/**
+  * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+  * 3DR curve is handled by CEMU! No need for shrinkcurve.
+  * DPad is handled by Xbox Adaptive controller.
+**/
+
+#import "./git/_3DR-LStick-B.git"
+#include <ps4.gph>
+
+init {
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
+  led_set(LED_1, 100.0, 0);               //Set T2 LED blue
+  remapper(_3DR_LStick_B_cmap);           //Process 3DR remap (Port B)
+}
+
+main {
+}
