@@ -1,0 +1,37 @@
+#pragma METAINFO("SteamController as DS4 Generic", 1, 0, "Aelius")
+
+/**
+  * DS4 USB out, use DS4Windows to handle gyro and DSUserver
+  * 3DR curve is handled by CEMU! No need for shrinkcurve.
+  * SteamController's TOUCHED values read as 50.2 when finger is present..
+   * and 100.0 when clicking in the physical button.
+  * Some non obvious internally hardcoded and redundant mappings exist:
+   * RPAD is bound to RX and RY - AND the RPAD pointer
+   * LPAD is NOT bound to LX or LY
+   * RPAD and RX, RY zero while not in use
+   * LPAD does NOT zero while not in use
+   * TOUCHED_R @ 100.0 is bound to R3
+   * TOUCHED_L @ 100.0 has sensible DPAD mappings, but NO L3
+**/
+
+#include "./include/SteamControllerDefinitions.gph"
+
+init {
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
+  led_set(LED_1, 100.00, 0);              //Set T2 LED blue
+}
+
+main {
+  if (is_active(SC_RPADDLE)) {            //While RPADDLE
+    set_val(SC_L2, 100.0);                  //Map RPADDLE to L2
+  }
+  if (is_active(SC_SELECT)) {             //While SELECT
+    set_val(SC_SELECT, 0.0);                //Suppress SELECT
+    set_val(BUTTON_18, 100.0);              //Map SELECT to DS4Share
+  }
+  if (is_active(SC_LTOUCHED)) {           //While LPAD in use
+    set_val(SC_LX, get_val(SC_LPAD_X));     //Map LPAD to LX LY
+    set_val(SC_LY, get_val(SC_LPAD_Y));
+  }
+  else set_val(SC_LPAD_X, 0.0), set_val(SC_LPAD_Y, 0.0); //Center inactive LPAD
+}
