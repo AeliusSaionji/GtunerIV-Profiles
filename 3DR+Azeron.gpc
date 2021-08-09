@@ -1,4 +1,4 @@
-#pragma METAINFO("3DR+Azeron", 1, 0, "<author_name>")
+#pragma METAINFO("3DR+Azeron", 1, 0, "Aelius")
 
 #include "./include/ShrinkCurve.gph"
 #import "./git/_3DR-LStick-B.git"
@@ -7,7 +7,7 @@ init {
   remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
 }
 main {
-  // Can onlx process one remap at a time...
+  // Can only process one remap at a time...
   // So, gotta fix Azeron bug this way
   set_val(STICK_1_X,get_actual(STICK_1_Y));
   set_val(STICK_1_Y,get_actual(STICK_1_X));
