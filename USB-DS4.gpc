@@ -1,0 +1,16 @@
+#pragma METAINFO("USB DS4", 1, 0, "Aelius")
+
+/**
+  * DS4 USB out, for use with native game support,
+  * or downstream controller config software.
+**/
+
+init {
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
+  led_set(LED_1, 100.0, 0);               //Set T2 LED blue
+}
+
+main {
+//Empty!
+}
+
