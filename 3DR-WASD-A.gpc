@@ -1,0 +1,28 @@
+#pragma METAINFO("3DR WASD A", 1, 0, "Aelius")
+/**
+  * 3DR WASD
+**/
+
+#include <keyboard.gph>
+//#include <_3DR_Definitions.gph>
+#import "./git/_3DR-A.git"
+#define _3DR_ROLL  STICK_2_X
+#define _3DR_PITCH STICK_2_Y
+
+init {
+  remapper(_3DR_A_cmap);                  //Unmap bad triggers
+  port_connect(PORT_USB_C, PROTOCOL_HID); //Keyboard output
+}
+
+main {
+  //Map axes to WASD at 30%
+  if (get_actual(_3DR_PITCH) <= -30.0) key_set(KEY_W, TRUE);
+  else key_set(KEY_W, FALSE);
+  if (get_actual(_3DR_PITCH) >=  30.0) key_set(KEY_S, TRUE);
+  else key_set(KEY_S, FALSE);
+  if (get_actual(_3DR_ROLL)  <= -30.0) key_set(KEY_A, TRUE);
+  else key_set(KEY_A, FALSE);
+  if (get_actual(_3DR_ROLL)  >=  30.0) key_set(KEY_D, TRUE);
+  else key_set(KEY_D, FALSE);
+}
+
