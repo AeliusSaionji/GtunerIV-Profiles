@@ -3,14 +3,61 @@
 /**
   * DS4 USB out, for use with native game support,
   * or downstream controller config software.
+  *
+  * Made use of combo entirely for the wait() command.
+  * Note that wait() has special flow control logic.
+  * wait() denotes the end of a block of code, repeated for [duration].
+  * Meant to simplify holding buttonpresses.
+  * Therefore wait(0) marks the end of a non-repeating block of code,
+  * and a subsequent wait(100) will repeat nothing for 100ms.
+  * Thus wait(0); wait(100); is equivalent to a conventional sleep(100) command.
 **/
+
+//TODO
+//disconnect from originating port, don't assume A
+//passthru lightbar
+//chorded buttonpress flash green as a simple means of confirming script
+//chorded buttonspress to peek at battery via lightcolor
+
+#include <ps4.gph>
+bool checkBatt = TRUE;
+uint32 batterystate;
 
 init {
   port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
-  led_set(LED_1, 100.0, 0);               //Set T2 LED blue
+  set_rgb(0.0, 100.0, 0.0); //GREEN
 }
 
 main {
-//Empty!
+  //PS+Share powers off the controller
+  if (get_actual(PS4_PS) && get_actual(PS4_TRIANGLE)) port_turnoff(PORT_BT_A);
+
+  //Low battery indicate on lightbar
+  low_battery(10.0);
 }
 
+void low_battery(fix32 charge) {
+  if (battery_get_actual(&batterystate) <= charge
+  && batterystate == BATTERY_DISCHARGING
+  && checkBatt) {
+    combo_run(LED_low_batt);
+    checkBatt = FALSE; //Prevent infinite loop
+  } else if (batterystate == (BATTERY_CHARGING || BATTERY_CHARGED))
+      checkBatt = TRUE; //Prevent infinite loop
+}
+
+combo LED_low_batt {
+  set_rgb(0.0, 0.0, 0.0);
+  led_vmset(LED_2, 50, 50, 20);
+  wait(0);
+  wait(2500);
+  set_rgb(255.0, 25.0, 0.0);
+}
+
+void set_rgb(fix32 r, fix32 g, fix32 b) {
+  led_set(LED_1, b, 0);
+  led_set(LED_2, r, 0);
+  led_set(LED_3, g, 0);
+  led_set(LED_4, 0.0, 0); //hardcoded magenta???
+  return;
+}

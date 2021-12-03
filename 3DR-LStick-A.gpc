@@ -1,0 +1,13 @@
+#pragma METAINFO("3DR-LStick on A", 1, 0, "Aelius")
+
+#include "./include/ShrinkCurve.gph"
+#import "./git/_3DR-LStick-A.git"
+
+init {
+  remapper(_3DR_LStick_A_cmap); //Process 3DR remap (Port A)
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
+}
+main {
+  /* Increase deadzone, reach 100.0 sooner on LX and LY */
+  ShrinkCurve(STICK_2_X, STICK_2_Y, 20.0, 65.0);
+}

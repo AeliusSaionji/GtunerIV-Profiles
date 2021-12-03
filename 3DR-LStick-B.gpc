@@ -5,6 +5,7 @@
 
 init {
   remapper(_3DR_LStick_B_cmap); //Process 3DR remap (Port B)
+  port_connect(PORT_USB_C, PROTOCOL_PS4); //DS4 USB out
 }
 main {
   /* Increase deadzone, reach 100.0 sooner on LX and LY */

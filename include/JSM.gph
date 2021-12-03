@@ -1,0 +1,44 @@
+#ifndef JSM_GPH_
+#define JSM_GPH_
+
+#define HOME      BUTTON_1
+#define CAPTURE   BUTTON_2
+#define PLUS      BUTTON_3
+#define R         BUTTON_4
+#define ZR        BUTTON_5
+#define R3        BUTTON_6
+#define L         BUTTON_7
+#define ZL        BUTTON_8
+#define L3        BUTTON_9
+#define UP        BUTTON_10
+#define DOWN      BUTTON_11
+#define LEFT      BUTTON_12
+#define RIGHT     BUTTON_13
+#define NORTH     BUTTON_14
+#define EAST      BUTTON_15
+#define SOUTH     BUTTON_16
+#define WEST      BUTTON_17
+#define MINUS     BUTTON_18
+#define TOUCH1    BUTTON_19
+#define TOUCH2    BUTTON_20
+#define MIC       BUTTON_21
+
+#define RX        STICK_1_X
+#define RY        STICK_1_Y
+#define LX        STICK_2_X
+#define LY        STICK_2_Y
+
+#define TOUCH1X   POINT_1_X
+#define TOUCH1Y   POINT_1_Y
+#define TOUCH2X   POINT_2_X
+#define TOUCH2Y   POINT_2_Y
+
+#define ACCX      ACCEL_1_X
+#define ACCY      ACCEL_1_Y
+#define ACCZ      ACCEL_1_Z
+
+#define GYROX     GYRO_1_X
+#define GYROY     GYRO_1_Y
+#define GYROZ     GYRO_1_Z
+
+#endif /* JSM_GPH_ */
