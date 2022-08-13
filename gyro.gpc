@@ -1,0 +1,70 @@
+#pragma METAINFO("Gyro", 1, 0, "Aelius")
+
+/* 
+*/
+
+fix32 rawG;
+fix32 calG;
+fix32 offsetZavg;
+fix32 offsetXavg;
+fix32 offsetZ;
+fix32 offsetX;
+fix32 offsetSamples;
+fix32 maxZ;
+fix32 maxX;
+uint32 deltaTime;
+uint32 timer = 0;
+bool calibrating = TRUE;
+#define xSens 1.0
+#define ySens 1.0
+#include <mouse.gph>
+
+main {
+  deltaTime += elapsed_time();
+  if (deltaTime >= 2) {//delay main() loop at 500Hz
+    calibrate();
+    if (!calibrating) {
+      gMouse();
+    }
+  }
+}
+
+void gMouse() {
+  calG = processInput(GYRO_1_Z, offsetZavg);
+  calG = (abs(calG) > abs(maxZ)) ? calG : 0.0; //Filter values below max error
+  calG = (calG >= 0.0) ? ceil(calG) : floor(calG);//If positive, round up to nearest int to avoid asymmetry
+  mouse_set(MOUSE_X, (int32)(calG));//Beware: typecast always rounds down, asymmetrical (0.99==0, -0.99==-1)
+  set_val(STICK_1_X, (int32)(calG));//For logging purposes
+  
+  calG = processInput(GYRO_1_X, offsetXavg);
+  calG = (abs(calG) > abs(maxX)) ? calG : 0.0;
+  calG = (calG >= 0.0) ? ceil(calG) : floor(calG);
+  mouse_set(MOUSE_Y, (int32)(calG));
+  set_val(STICK_1_Y, (int32)(calG));
+  deltaTime = 0;
+}
+fix32 processInput(uint8 device, fix32 offset) {
+  return ((get_val(device) - offset) * (fix32)deltaTime * xSens);
+}
+
+void calibrate() {
+  if (timer < 5000) {//poll samples for calibration
+    timer += elapsed_time();
+    offsetSamples++;
+    offsetZ += get_val(GYRO_1_Z);
+    offsetX += get_val(GYRO_1_X);
+    offsetZavg = offsetZ/offsetSamples;
+    offsetXavg = offsetX/offsetSamples;
+    maxZ = max(processInput(GYRO_1_Z, offsetZavg), maxZ); //Find max drift error during cal
+    maxX = max(processInput(GYRO_1_X, offsetXavg), maxX);
+    printf("maxZ: %f", maxZ);
+    printf("maxX: %f", maxX);
+    deltaTime = 0;
+  } else {
+    calibrating = FALSE;
+    led_set(LED_1, 50.0, 0);
+    led_set(LED_2, 50.0, 0);
+    led_set(LED_3, 50.0, 0);
+    led_set(LED_4, 0.0, 0);
+  }
+}
