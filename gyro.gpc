@@ -103,15 +103,6 @@ fix32 getCalibrationOffset(int32 n) {
   return accumulatedOffset[n] / (fix32)offsetSamples;
 }
 
-bool calibrateTimer() {
-  timer++;
-  if (timer < 60) {
-    return TRUE;
-  }
-  
-  return FALSE;
-}
-
 void resetCalibration() {
   offsetSamples = 0;
   accumulatedOffset = 0.0;
