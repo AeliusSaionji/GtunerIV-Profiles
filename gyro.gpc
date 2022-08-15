@@ -17,7 +17,7 @@ fix32 calibratedGyro[2];
 fix32 gyroCalibration[2];
 fix32 accumulatedOffset[2];
 fix32 camera[2];
-fix32 smoothThreshold;
+fix32 smoothThreshold 0.0;
 fix32 tightThreshold = 0.0;
 fix32 slowSensitivity = 0.2;
 fix32 fastSensitivity = 5.0;
