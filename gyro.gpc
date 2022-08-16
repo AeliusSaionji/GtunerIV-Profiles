@@ -10,19 +10,19 @@ uint32 deltaTime;
 uint32 timer = 0;
 bool enableAccel = TRUE;
 bool calibrating = TRUE;
-//Bug? array needs to be one larger than necessary,
-//or unrelated variables get garbage values????????
 fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
 fix32 calibratedGyro[2];
 fix32 gyroCalibration[2];
 fix32 accumulatedOffset[2];
 fix32 camera[2];
-fix32 smoothThreshold 0.0;
+fix32 smoothThreshold = 0.0;
 fix32 tightThreshold = 0.0;
 fix32 slowSensitivity = 0.2;
 fix32 fastSensitivity = 5.0;
 fix32 slowThreshold = 0.1;
 fix32 fastThreshold = 1.0;
+fix32 gyroStickX = 0.0;
+fix32 gyroStickY = 0.0;
 
 fix32 sensitivity = 1.0;
 
@@ -34,14 +34,20 @@ main {
     gyroVelocity[0] = get_actual(GYRO_1_Z);
     gyroVelocity[1] = get_actual(GYRO_1_X);
     processInput(deltaTime);
+    processGyroStick(get_actual(STICK_1_X), get_actual(STICK_1_Y), 100.0);
+    set_val(STICK_1_X, gyroStickX);
+    set_val(STICK_1_Y, gyroStickY);
+    
     //Bug? mouse_set only accepts int32, which is not precise enough.
     //Typecasting to int32 always rounds down, such that 0.8==0 but -0.8==-1
     //Thus _any_ noise causes drift in the negative direction,
     //but rounding filters out legitimate movement. Unsure how to proceed.
+    /*
     camera[0] = (camera[0] < 0.0) ? ceil(camera[0]) : camera[0];
     camera[1] = (camera[1] < 0.0) ? ceil(camera[1]) : camera[1];
     mouse_set(MOUSE_X, (int32)camera[0]);
     mouse_set(MOUSE_Y, (int32)camera[1]);
+    */
     deltaTime = 0;
   }
 }
@@ -197,4 +203,63 @@ fix32 slowThreshold, fix32 fastThreshold) {
 
 fix32 pythag(fix32 a, fix32 b) {
   return sqrt( sq(a) + sq(b) );
+}
+
+void processGyroStick(fix32 stickX, fix32 stickY, fix32 stickLength) {
+  fix32 undeadzoneInner, undeadzoneOuter, unpower = 0.0;
+  fix32 virtualScale = 1.0;
+  fix32 maxStickGameSpeed = 1.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS
+  fix32 livezoneSize = 100.0 - undeadzoneOuter - undeadzoneInner;
+  // in order to correctly combine gyro and stick, we need to calculate what the stick aiming is supposed to be doing, add gyro result to it, and convert back to stick
+  if (unpower == 0.0)
+  unpower = 1.0;
+  fix32 stickVelocity = pow(clamp((stickLength - undeadzoneInner) / livezoneSize, 0.0, 100.0), unpower) * maxStickGameSpeed * virtualScale;
+  fix32 expectedX = 0.0;
+  fix32 expectedY = 0.0;
+  if (stickVelocity > 0.0) {
+    expectedX = stickX / stickLength * stickVelocity;
+    expectedY = -stickY / stickLength * stickVelocity;
+  }
+  
+  expectedX += gyroVelocity[0];
+  expectedY += gyroVelocity[1];
+  
+  fix32 targetGyroVelocity = pythag(expectedX, expectedY);
+  // map gyro velocity to achievable range in 0-1
+  fix32 gyroInStickStrength = targetGyroVelocity >= maxStickGameSpeed ? 100.0 : targetGyroVelocity / maxStickGameSpeed;
+  // unpower curve
+  if (unpower != 0.0) {
+    gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
+  }
+  // remap to between inner and outer deadzones
+
+  if (gyroInStickStrength > 0.010) {
+    gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
+    gyroStickX = expectedX / targetGyroVelocity * gyroInStickStrength;
+    gyroStickY = expectedY / targetGyroVelocity * gyroInStickStrength;
+  }
+  /* mystery undeadzone stuff?
+if (jc->_context->_vigemController)
+{
+if (stickLength <= undeadzoneInner)
+{
+if (gyroInStickStrength == 0.0)
+{
+// hack to help with finding deadzones more quickly
+jc->_context->_vigemController->setStick(undeadzoneInner, 0.0, isLeft);
+}
+else
+{
+jc->_context->_vigemController->setStick(gyroStickX, -gyroStickY, isLeft);
+}
+}
+else
+{
+jc->_context->_vigemController->setStick(gyroStickX, -gyroStickY, isLeft);
+}
+}
+
+jc->processed_gyro_stick |= gyroMatchesStickMode;
+  */
+  //return stickLength > undeadzoneInner;
 }
