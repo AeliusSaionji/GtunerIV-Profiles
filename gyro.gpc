@@ -41,6 +41,7 @@ main {
     gyroVelocity[0] = get_actual(GYRO_1_Z);
     gyroVelocity[1] = get_actual(GYRO_1_X);
     processInput(deltaTime);
+    //Logic from JSM operates on a scale of 0-1
     if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.00)) {
       set_val(STICK_1_X, gyroStickX * 100.00);
       set_val(STICK_1_Y, gyroStickY * 100.00);
