@@ -1,0 +1,500 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?application progid="SMath Studio Desktop" version="1.0.8253.4763"?>
+<worksheet xmlns="http://smath.info/schemas/worksheet/1.0">
+  <settings ppi="96">
+    <identity>
+      <id>3898b7de-8742-4a04-be97-f96512ae5108</id>
+      <revision>24</revision>
+    </identity>
+    <calculation>
+      <precision>4</precision>
+      <exponentialThreshold>5</exponentialThreshold>
+      <trailingZeros>false</trailingZeros>
+      <significantDigitsMode>false</significantDigitsMode>
+      <roundingMode>0</roundingMode>
+      <approximateEqualAccuracy>0</approximateEqualAccuracy>
+      <fractions>decimal</fractions>
+    </calculation>
+    <pageModel active="false" viewMode="1" printGrid="false" printAreas="true" simpleEqualsOnly="false" printBackgroundImages="true">
+      <paper id="1" orientation="Portrait" width="850" height="1100" />
+      <margins left="39" right="39" top="49" bottom="49" />
+      <header alignment="Center" color="#a9a9a9">&amp;[DATE] &amp;[TIME] - &amp;[FILENAME]</header>
+      <footer alignment="Center" color="#a9a9a9">&amp;[PAGENUM] / &amp;[COUNT]</footer>
+      <backgrounds />
+    </pageModel>
+    <dependencies>
+      <assembly name="SMath Studio Desktop" version="1.0.8253.4763" guid="a37cba83-b69c-4c71-9992-55ff666763bd" />
+      <assembly name="MathRegion" version="1.11.8253.4763" guid="02f1ab51-215b-466e-a74d-5d8b1cf85e8d" />
+      <assembly name="SpecialFunctions" version="1.12.8253.4763" guid="2814e667-4e12-48b1-8d51-194e480eabc5" />
+      <assembly name="TextRegion" version="1.11.8253.4763" guid="485d28c5-349a-48b6-93be-12a35a1c1e39" />
+    </dependencies>
+  </settings>
+  <regions type="content">
+    <region left="0" top="0" width="110" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">deltaTime</e>
+          <e type="operand">8</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="18" width="126" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">sensitivity</e>
+          <e type="operand">1</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="36" width="198" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">gyroVelocity0</e>
+          <e type="operand">0.006241</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="54" width="198" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">gyroVelocity1</e>
+          <e type="operand">0.021866</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="72" width="158" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">unDeadZoneOuter</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="90" width="174" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">unDeadZoneInner</e>
+          <e type="operand">0.1</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="108" width="194" height="41" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">stickX</e>
+          <e type="operand">3.5294</e>
+          <e type="operand">100</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0353</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="144" width="219" height="41" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">stickY</e>
+          <e type="operand">45.0974</e>
+          <e type="operator" args="1">-</e>
+          <e type="operand">100</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.451</e>
+          <e type="operator" args="1">-</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="189" width="413" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">cam0</e>
+          <e type="operand">gyroVelocity0</e>
+          <e type="operand">sensitivity</e>
+          <e type="operator" args="2">*</e>
+          <e type="operand">deltaTime</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0499</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="207" width="413" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">cam1</e>
+          <e type="operand">gyroVelocity1</e>
+          <e type="operand">sensitivity</e>
+          <e type="operator" args="2">*</e>
+          <e type="operand">deltaTime</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.1749</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="234" width="332" height="35" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">stickLength</e>
+          <e type="operand">stickX</e>
+          <e type="operand">2</e>
+          <e type="operator" args="2">^</e>
+          <e type="operand">stickY</e>
+          <e type="operand">2</e>
+          <e type="operator" args="2">^</e>
+          <e type="operator" args="2">+</e>
+          <e type="function" args="1">sqrt</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.4524</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="261" width="117" height="25" color="#000000" fontSize="10">
+      <text lang="eng" fontFamily="Arial" fontSize="10">
+        <content>
+          <p>\[REGION[4580843224ee406cb4cbdb84b519e663]]\</p>
+        </content>
+        <regions>
+          <region id="4580843224ee406cb4cbdb84b519e663" left="2" top="0" width="110" height="24" color="#000000" fontSize="10">
+            <math>
+              <input>
+                <e type="operand">maxSpeed</e>
+                <e type="operand">40</e>
+                <e type="operator" args="2">:</e>
+              </input>
+            </math>
+          </region>
+        </regions>
+      </text>
+    </region>
+    <region left="0" top="279" width="415" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">liveZone</e>
+          <e type="operand">1</e>
+          <e type="operand">unDeadZoneOuter</e>
+          <e type="operator" args="2">-</e>
+          <e type="operand">unDeadZoneInner</e>
+          <e type="operator" args="2">-</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.9</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="297" width="94" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">unpower</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="315" width="118" height="41" color="#000000" fontSize="10">
+      <math optimize="2">
+        <input>
+          <e type="operand">unpower</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">≡</e>
+          <e type="operand">unpower</e>
+          <e type="operand">1</e>
+          <e type="operator" args="2">:</e>
+          <e type="function" args="2">if</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="351" width="134" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">virtualScale</e>
+          <e type="operand">1</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="369" width="373" height="41" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">clamp1</e>
+          <e type="operand">stickLength</e>
+          <e type="operand">unDeadZoneInner</e>
+          <e type="operator" args="2">-</e>
+          <e type="operand">liveZone</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.3915</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="414" width="150" height="73" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">clamp1</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">&lt;</e>
+          <e type="operand">clamp1</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">:</e>
+          <e type="operand">clamp1</e>
+          <e type="operand">1</e>
+          <e type="operator" args="2">&gt;</e>
+          <e type="operand">clamp1</e>
+          <e type="operand">1</e>
+          <e type="operator" args="2">:</e>
+          <e type="function" args="4">if</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="486" width="509" height="35" color="#000000" fontSize="10">
+      <math>
+        <description active="false" position="Top" lang="eng" />
+        <input>
+          <e type="operand">stickVelocity</e>
+          <e type="operand">clamp1</e>
+          <e type="bracket">(</e>
+          <e type="operand">unpower</e>
+          <e type="operator" args="2">^</e>
+          <e type="operand">maxSpeed</e>
+          <e type="operator" args="2">*</e>
+          <e type="operand">virtualScale</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">15.6601</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="531" width="110" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">expectedX</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="0" top="549" width="110" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">expectedY</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">:</e>
+        </input>
+      </math>
+    </region>
+    <region left="90" top="576" width="184" height="23" color="#000000" fontSize="10">
+      <text lang="eng" fontFamily="Arial" fontSize="10">
+        <content>
+          <p>assumed order of operations</p>
+        </content>
+      </text>
+    </region>
+    <region left="0" top="612" width="383" height="58" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">stickVelocity</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">&gt;</e>
+          <e type="operand">expectedX</e>
+          <e type="operand">stickX</e>
+          <e type="operand">stickLength</e>
+          <e type="operand">stickVelocity</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+          <e type="function" args="2">if</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.005</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="666" width="403" height="58" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">stickVelocity</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">&gt;</e>
+          <e type="operand">expectedY</e>
+          <e type="operand">stickY</e>
+          <e type="operand">stickLength</e>
+          <e type="operand">stickVelocity</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="1">-</e>
+          <e type="operator" args="2">:</e>
+          <e type="function" args="2">if</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0637</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="729" width="362" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">expectedX</e>
+          <e type="operand">expectedX</e>
+          <e type="operand">gyroVelocity0</e>
+          <e type="operator" args="2">+</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0112</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="756" width="362" height="24" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">expectedY</e>
+          <e type="operand">expectedY</e>
+          <e type="operand">gyroVelocity1</e>
+          <e type="operator" args="2">+</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0855</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="819" width="404" height="35" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">targetVelocity</e>
+          <e type="operand">expectedX</e>
+          <e type="operand">2</e>
+          <e type="operator" args="2">^</e>
+          <e type="operand">expectedY</e>
+          <e type="operand">2</e>
+          <e type="operator" args="2">^</e>
+          <e type="operator" args="2">+</e>
+          <e type="function" args="1">sqrt</e>
+          <e type="operator" args="2">:</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0863</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="855" width="380" height="91" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">targetVelocity</e>
+          <e type="operand">maxSpeed</e>
+          <e type="operator" args="2">≥</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">1</e>
+          <e type="operator" args="2">:</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">targetVelocity</e>
+          <e type="operand">maxSpeed</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+          <e type="function" args="3">if</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0022</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="954" width="480" height="67" color="#000000" fontSize="10">
+      <math>
+        <input>
+          <e type="operand">unpower</e>
+          <e type="operand">0</e>
+          <e type="operator" args="2">≠</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">1</e>
+          <e type="operand">unpower</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">^</e>
+          <e type="operator" args="2">:</e>
+          <e type="function" args="2">if</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">0.0022</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="1017" width="596" height="115" color="#000000" fontSize="10">
+      <math error="8" errorLocation="27">
+        <input>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">0.010</e>
+          <e type="operator" args="2">&gt;</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">unDeadZoneInner</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operand">liveZone</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">+</e>
+          <e type="operator" args="2">:</e>
+          <e type="operand">gyroStickX</e>
+          <e type="operand">expectedX</e>
+          <e type="operand">targetVelocity</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+          <e type="operand">gyroStickY</e>
+          <e type="operand">expectedY</e>
+          <e type="operand">targetVelocity</e>
+          <e type="operand">gyroInStickStrength</e>
+          <e type="operator" args="2">*</e>
+          <e type="operator" args="2">/</e>
+          <e type="operator" args="2">:</e>
+          <e type="operand">3</e>
+          <e type="operand">1</e>
+          <e type="function" args="5">line</e>
+          <e type="function" args="2">if</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">#</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="1179" width="116" height="24" color="#000000" fontSize="10">
+      <math error="2" errorLocation="0">
+        <input>
+          <e type="operand">gyroStickX</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">#</e>
+        </result>
+      </math>
+    </region>
+    <region left="0" top="1197" width="116" height="24" color="#000000" fontSize="10">
+      <math error="2" errorLocation="0">
+        <input>
+          <e type="operand">gyroStickY</e>
+        </input>
+        <result action="numeric">
+          <e type="operand">#</e>
+        </result>
+      </math>
+    </region>
+  </regions>
+</worksheet>
