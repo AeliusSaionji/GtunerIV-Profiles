@@ -4,7 +4,7 @@
   <settings ppi="96">
     <identity>
       <id>3898b7de-8742-4a04-be97-f96512ae5108</id>
-      <revision>24</revision>
+      <revision>27</revision>
     </identity>
     <calculation>
       <precision>4</precision>
@@ -303,14 +303,7 @@
         </input>
       </math>
     </region>
-    <region left="90" top="576" width="184" height="23" color="#000000" fontSize="10">
-      <text lang="eng" fontFamily="Arial" fontSize="10">
-        <content>
-          <p>assumed order of operations</p>
-        </content>
-      </text>
-    </region>
-    <region left="0" top="612" width="383" height="58" color="#000000" fontSize="10">
+    <region left="0" top="576" width="383" height="58" color="#000000" fontSize="10">
       <math>
         <input>
           <e type="operand">stickVelocity</e>
@@ -330,7 +323,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="666" width="403" height="58" color="#000000" fontSize="10">
+    <region left="0" top="630" width="403" height="58" color="#000000" fontSize="10">
       <math>
         <input>
           <e type="operand">stickVelocity</e>
@@ -351,7 +344,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="729" width="362" height="24" color="#000000" fontSize="10">
+    <region left="0" top="693" width="362" height="24" color="#000000" fontSize="10">
       <math>
         <input>
           <e type="operand">expectedX</e>
@@ -365,7 +358,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="756" width="362" height="24" color="#000000" fontSize="10">
+    <region left="0" top="720" width="362" height="24" color="#000000" fontSize="10">
       <math>
         <input>
           <e type="operand">expectedY</e>
@@ -379,8 +372,9 @@
         </result>
       </math>
     </region>
-    <region left="0" top="819" width="404" height="35" color="#000000" fontSize="10">
+    <region left="0" top="783" width="404" height="35" color="#000000" fontSize="10">
       <math>
+        <description active="false" position="Top" lang="eng" />
         <input>
           <e type="operand">targetVelocity</e>
           <e type="operand">expectedX</e>
@@ -398,7 +392,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="855" width="380" height="91" color="#000000" fontSize="10">
+    <region left="0" top="819" width="380" height="91" color="#000000" fontSize="10">
       <math>
         <input>
           <e type="operand">targetVelocity</e>
@@ -419,7 +413,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="954" width="480" height="67" color="#000000" fontSize="10">
+    <region left="0" top="918" width="480" height="67" color="#000000" fontSize="10">
       <math>
         <input>
           <e type="operand">unpower</e>
@@ -439,7 +433,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="1017" width="596" height="115" color="#000000" fontSize="10">
+    <region left="0" top="981" width="596" height="115" color="#000000" fontSize="10">
       <math error="8" errorLocation="27">
         <input>
           <e type="operand">gyroInStickStrength</e>
@@ -476,7 +470,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="1179" width="116" height="24" color="#000000" fontSize="10">
+    <region left="0" top="1116" width="116" height="24" color="#000000" fontSize="10">
       <math error="2" errorLocation="0">
         <input>
           <e type="operand">gyroStickX</e>
@@ -486,7 +480,7 @@
         </result>
       </math>
     </region>
-    <region left="0" top="1197" width="116" height="24" color="#000000" fontSize="10">
+    <region left="0" top="1134" width="116" height="24" color="#000000" fontSize="10">
       <math error="2" errorLocation="0">
         <input>
           <e type="operand">gyroStickY</e>

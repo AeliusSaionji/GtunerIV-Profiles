@@ -6,22 +6,111 @@ make magic math happen to really smooth out slow movement
 
 TODO
 fix smoothing
-make joystick emu use calibration code, dummy
+finish interactive config
+flickstick
+fix mouse by applying data to new scale starting at 1, use rawaccel to fix speed
+make printfs a function or something maybe
 */
+
+/* IC
+<cfgdesc>
+[Deadzone Finder]
+shortdesc	 = Titan will tilt the right joystick at the configured inner deadzone. Find the highest value of inner deadzone where the camera DOESN'T move.
+byteoffset = 0
+bitsize	   = 1
+bitoffset  = 7
+control    = checkbox
+default    = 0
+item       = Enabled
+[Deadzones]
+shortdesc = Inner deadzone (0-100)
+byteoffset = 1
+bitsize = 8
+control = spinbox
+default = 0
+step = 1
+minimum = 0
+maximum = 100
+[Deadzones2]
+shortdesc = Outer deadzone (0-100)
+byteoffset = 2
+bitsize = 8
+control = spinbox
+default = 0
+step = 1
+minimum = 0
+maximum = 100
+groupcol = true
+
+[Gyro Assignment]
+shortdesc = 
+byteoffset = 3
+bitsize = 8
+control = radiobox
+default = 1
+item = Gyro controls mouse
+item = Gyro controls right joystick
+item = Gyro controls left joytick
+
+[Misc]
+shortdesc =
+byteoffset = 4
+bitsize = 8
+control = checkbox
+default = 0
+item = Acceleration
+[Misc2]
+shortdesc =
+byteoffset = 5
+bitsize = 8
+control = checkbox
+default = 1
+item = Calibrate gyro on startup
+groupcol = true
+[Misc3]
+shortdesc = RWC/IN_GAME_SENS
+byteoffset = 6
+bitsize = 8
+control = spinboxf
+decimals = 2
+default = 1000
+minimum = 0000
+maximum = 9999
+step = 100
+groupcol = true
+[Misc4]
+shortdesc = unpower
+byteoffset = 7
+bitsize = 8
+control = spinboxf
+decimals = 2
+default = 0000
+minimum = 0000
+maximum = 9999
+step = 100
+groupcol = true
+</cfgdesc>
+
+*/
+
+#include <mouse.gph>
 
 uint32 offsetSamples;
 uint32 deltaTime;
 uint32 timer = 0;
-bool enableAccel = FALSE;
-bool calibrating = TRUE;
-bool deadZoneFinder = FALSE;
-bool yay;
 fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
 fix32 calibratedGyro[2];
 fix32 gyroCalibration[2];
 fix32 accumulatedOffset[2];
 fix32 camera[2];
-fix32 maxStickGameSpeed = 10.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS
+
+bool enableAccel = FALSE;
+bool calibrating = TRUE;
+bool deadZoneFinder = FALSE;
+bool overwatch_hack = FALSE;
+fix32 undeadzoneInner = 0.26;
+fix32 undeadzoneOuter = 0.08; //0.08
+fix32 maxStickGameSpeed = 33.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS
 fix32 smoothThreshold = 0.0;
 fix32 tightThreshold = 0.0;
 fix32 slowSensitivity = 1.0;
@@ -31,42 +120,49 @@ fix32 fastThreshold = 1.0;
 fix32 gyroStickX = 0.0;
 fix32 gyroStickY = 0.0;
 fix32 unpower = 0.0;
-fix32 undeadzoneInner = 0.37;
-fix32 undeadzoneOuter = 0.0;
-fix32 virtualScale = 1.0;
-fix32 sensitivity = 2.0;
 
-#include <mouse.gph>
+fix32 virtualScale = 1.0;
+fix32 sensitivity = 1.0;
 
 init {
 }
 
 main {
   deltaTime += elapsed_time();
-  if (deltaTime >= 8) {//delay main() loop at ~500Hz
-    //possibly need to hold set vals outside of this loop
-    //or just drop this loop
+  //GPC bug? titan unresponsive when deltaTime loop is less than 4ms
+  if (deltaTime >= 4) {//delay main() loop at ~250Hz
     gyroVelocity[0] = get_actual(GYRO_1_Z);
     gyroVelocity[1] = get_actual(GYRO_1_X);
     processInput(deltaTime);
     //Logic from JSM operates on a scale of 0-1
     if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.00)) {
-      printf("gsx %f", gyroStickX);
-      printf("gsy %f", gyroStickY);
-      yay = TRUE;
-    } else { yay = FALSE; }
+      //Nothing here because set_val can't be in the loop.
+      //Just reminding myself that this function returns a bool
+      //and the set_val was here in JSM...
+    }
     deltaTime = 0;
   }
-  //Output must be outside the polling loop, lest values bounce back to 0 every cycle
-  if (yay = TRUE) {
-    set_val(STICK_1_X, gyroStickX * 100.00);
-    set_val(STICK_1_Y, gyroStickY * 100.00);
-  }
+  
+  //set_val must be outside the polling loop!
+  //lest values bounce back to 0 every cycle
   if (deadZoneFinder == TRUE) {
     // hack to help with finding deadzones more quickly
     set_val(STICK_1_X, undeadzoneInner * 100.00);
+  } else {
+    set_val(STICK_1_X, gyroStickX * 100.00);
+    set_val(STICK_1_Y, gyroStickY * 100.00);
   }
-  //Bug? mouse_set only accepts int32, which is not precise enough.
+  
+  //hack for overwatch: skip outer deadzone logic for the actual joystick
+  //gyro is still subject to deadzone and thus remains linear.
+  //stick now has access to overwatch's snappy stick turn logic
+  if (overwatch_hack == TRUE) {
+    if (get_actual(STICK_1_X) >= 92.0 || get_actual(STICK_1_X) <= -92.0)  {
+      set_val(STICK_1_X, get_actual(STICK_1_X));
+    }
+  }
+  
+  //GPC bug? mouse_set only accepts int32, which is not precise enough.
   //Typecasting to int32 always rounds down, such that 0.8==0 but -0.8==-1
   //Thus _any_ noise causes drift in the negative direction,
   //but rounding filters out legitimate movement. Unsure how to proceed.
@@ -87,7 +183,7 @@ void processInput(uint32 deltaTime) {
     accumulatedOffset[1] += gyroVelocity[1];
     printf("calibrating!", 0);
     timer++;
-    if (timer > 1000/8) {
+    if (timer > 500) {
       led_set(LED_1, 50.0, 0);
       led_set(LED_2, 50.0, 0);
       led_set(LED_3, 50.0, 0);
@@ -255,26 +351,12 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     expectedY = stickY / stickLength * stickVelocity;
   }
   
-  expectedX += gyroVelocity[0];
-  expectedY += gyroVelocity[1];
-  //expectedX += camera[0];
-  //expectedY += camera[1];
-  printf("c0: %f",camera[0]);
-  printf("c1: %f",camera[1]);
-  printf("sX: %f",stickX);
-  printf("sY: %f",stickY);
-  printf("gv0: %f",gyroVelocity[0]);
-  printf("gv1: %f",gyroVelocity[1]);
-  printf("eX: %f",expectedX);
-  printf("eY: %f",expectedY);
+  //expectedX += gyroVelocity[0];
+  //expectedY += gyroVelocity[1]; //raw data seems to work better
+  expectedX += camera[0]; //honestly, I think my calibration code is whack
+  expectedY += camera[1];
   
   fix32 targetGyroVelocity = pythag(expectedX, expectedY);
-  
-  printf("sl: %f",stickLength);
-  printf("sv: %f",stickVelocity);
-  
-  printf("tgv: %f",targetGyroVelocity);
-  
   // map gyro velocity to achievable range in 0-1
   fix32 gyroInStickStrength = targetGyroVelocity >= maxStickGameSpeed ? 1.0 : targetGyroVelocity / maxStickGameSpeed;
   // unpower curve
@@ -290,13 +372,20 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     gyroStickY = expectedY / targetGyroVelocity * gyroInStickStrength;
   }
   
-  if (deadZoneFinder == TRUE) {
-    if (stickLength <= undeadzoneInner) {
-      // hack to help with finding deadzones more quickly
-      //set_val(STICK_1_X, undeadzoneInner * 100.00);
-      return FALSE;
-    }
-  }
-  printf("gyroinstick: %f",gyroInStickStrength);
+  printf("camera0: %f",camera[0]);
+  printf("camera1: %f",camera[1]);
+  printf("gyroVelocity0: %f",gyroVelocity[0]);
+  printf("gyroVelocity1: %f",gyroVelocity[1]);
+  printf("stickX: %f",stickX);
+  printf("stickY: %f",stickY);
+  printf("expectedX: %f",expectedX);
+  printf("expectedY: %f",expectedY);
+  printf("gyroStickX %f", gyroStickX);
+  printf("gyroStickY %f", gyroStickY);
+  printf("stickLength: %f",stickLength);
+  printf("stickVelocity: %f",stickVelocity);
+  printf("targetGyroVelocity: %f",targetGyroVelocity);
+  printf("gyroInStickStrength: %f",gyroInStickStrength);
+  
   return stickLength > undeadzoneInner;
 }
