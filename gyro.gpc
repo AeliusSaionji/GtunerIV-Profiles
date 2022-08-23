@@ -1,98 +1,281 @@
-#pragma METAINFO("Gyro", 1, 0, "Aelius")
+#pragma METAINFO("Gyro Aim", 1, 0, "Aelius")
 
 /*
-mouse_set uses int32, not precise enough. In order to be useful, we must
-make magic math happen to really smooth out slow movement
+<shortdesc>
+Use your controller's gyro to aim! Supports outputting as mouse or joystick. Supports flickstick when in mouse mode. See interactive config for help.
+</shortdesc>
 
-TODO
+<keywords>
+gyro mouse flickstick
+</keywords>
+*/
+
+/* TODO
 fix smoothing
+fix unpower
 finish interactive config
 flickstick
+player space gyro
 fix mouse by applying data to new scale starting at 1, use rawaccel to fix speed
 make printfs a function or something maybe
+make sure it actually works when calibrate is off
+implement on demand calibrate? or just tell user to reload script
 */
 
 /* IC
+
 <cfgdesc>
-[Deadzone Finder]
-shortdesc	 = Titan will tilt the right joystick at the configured inner deadzone. Find the highest value of inner deadzone where the camera DOESN'T move.
-byteoffset = 0
-bitsize	   = 1
-bitoffset  = 7
-control    = checkbox
-default    = 0
-item       = Enabled
-[Deadzones]
-shortdesc = Inner deadzone (0-100)
-byteoffset = 1
-bitsize = 8
-control = spinbox
-default = 0
-step = 1
-minimum = 0
-maximum = 100
-[Deadzones2]
-shortdesc = Outer deadzone (0-100)
-byteoffset = 2
-bitsize = 8
-control = spinbox
-default = 0
-step = 1
-minimum = 0
-maximum = 100
-groupcol = true
 
 [Gyro Assignment]
 shortdesc = 
-byteoffset = 3
+byteoffset = 0
 bitsize = 8
+bitoffset = 0
 control = radiobox
-default = 1
+default = 0
 item = Gyro controls mouse
 item = Gyro controls right joystick
 item = Gyro controls left joytick
 
-[Misc]
-shortdesc =
-byteoffset = 4
-bitsize = 8
-control = checkbox
-default = 0
-item = Acceleration
-[Misc2]
-shortdesc =
-byteoffset = 5
-bitsize = 8
-control = checkbox
-default = 1
-item = Calibrate gyro on startup
-groupcol = true
-[Misc3]
-shortdesc = RWC/IN_GAME_SENS
-byteoffset = 6
-bitsize = 8
+[Sensitivities]
+shortdesc = Gyro sensitivity
+byteoffset = 1
+bitsize = 16
+bitoffset = 0
 control = spinboxf
 decimals = 2
-default = 1000
-minimum = 0000
-maximum = 9999
-step = 100
+default = 100
+minimum = 001
+maximum = 999
+step = 001
+[Stick sensitivity]
+shortdesc = Stick sensitivity
+byteoffset = 3
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 100
+minimum = 001
+maximum = 999
+step = 001
+group = true
+[Misc3]
+shortdesc = Max stick game speed
+byteoffset = 5
+bitsize = 16
+bitoffset = 0
+control = slider
+default = 40
+minimum = 1
+maximum = 500
+step = 5
 groupcol = true
 [Misc4]
 shortdesc = unpower
 byteoffset = 7
 bitsize = 8
+bitoffset = 0
 control = spinboxf
 decimals = 2
-default = 0000
-minimum = 0000
+default = 000
+minimum = 000
+maximum = 255
+step = 100
+group = true
+
+[Un-Deadzone]
+shortdesc = Inner deadzone %
+byteoffset = 8
+bitsize = 8
+bitoffset = 0
+control = spinbox
+default = 0
+decimals = 2
+step = 1
+minimum = 00
+maximum = 95
+[Deadzone outer]
+shortdesc = Outer deadzone %
+byteoffset = 9
+bitsize = 8
+bitoffset = 0
+control = spinbox
+default = 0
+step = 1
+minimum = 00
+maximum = 95
+group = true
+[Deadzone Finder checkbox]
+shortdesc	 =
+byteoffset = 22
+bitsize	   = 1
+bitoffset  = 0
+control    = checkbox
+default    = 0
+item       = Deadzone Finder
+groupcol = true
+[Outer deadzone override]
+shortdesc =
+byteoffset = 22
+bitsize = 1
+bitoffset = 1
+control = checkbox
+default = 0
+item = Stick overrides outer deadzone
+groupcol = true
+
+[Acceleration]
+shortdesc =
+byteoffset = 22
+bitsize = 1
+bitoffset = 2
+control = checkbox
+default = 0
+item = Enable Acceleration
+[Acceleration slow sens]
+shortdesc = Slow sensitivity
+byteoffset = 10
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 100
+minimum = 001
+maximum = 999
+step = 001
+groupcol = true
+[Acceleration fast sens]
+shortdesc = Fast sensitivity
+byteoffset = 12
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 500
+minimum = 001
+maximum = 999
+step = 001
+group = true
+[Acceleration slow threshold]
+shortdesc = Slow threshold
+byteoffset = 14
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 0100
+minimum = 0001
 maximum = 9999
+step = 001
+groupcol = true
+[Acceleration fast threshold]
+shortdesc = Fast threshold
+byteoffset = 16
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 1000
+minimum = 0001
+maximum = 9999
+step = 0010
+group = true
+
+[Misc]
+shortdesc =
+byteoffset = 22
+bitsize = 1
+bitoffset = 3
+control = checkbox
+default = 1
+item = Calibrate gyro on startup
+
+[Misc5]
+shortdesc = Tightening threshold
+byteoffset = 18
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 0
+minimum = 00000
+maximum = 65535
 step = 100
 groupcol = true
+[Misc6]
+shortdesc = Smoothing threshold
+byteoffset = 20
+bitsize = 16
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 0
+minimum = 00000
+maximum = 65535
+step = 100
+group = true
+
+[Info: Mouse vs Joystick]
+shortdesc = <<<MULTILINE
+Gyro is functionally equivalent to mouse, and this script is best used in mouse mode where possible.
+While I have included joystick emulation, it may not feel ideal.
+In fact, since gyro is a mouse, it will feel a lot like you're trying to map a mouse to the joystick!
+For joystick only games, it would make a lot of sense to output as mouse into a Xim, so that you can use a Xim smart translator.
+This is effectively what the Xim Nexus is!
+MULTILINE
+control = info
+
+[Info: Sensitivities]
+shortdesc = <<<MULTILINE
+Gyro Sensitivity gets multiplied against sensor data to increase or decrease the output speed.
+
+Stick sensitivity configures the sensitivity of the joystick in the same way, independently of gyro motion.
+
+Max stick game speed represents the fastest you can look around in game; the higher the number, the faster you can move the controller without input being clipped.
+
+Unpower: If a game processes the joystick with a power curve, setting the exponent of the curve here will cancel out that curve for gyro output.
+MULTILINE
+control = info
+
+[Info: Un-Deadzone]
+shortdesc = <<<MULTILINE
+Each game has its own joystick inner deadzone set by the developers.
+If this script knows where the deadzone is, we can use that as the starting point for gyro outpoint, effectively eliminating the inner deadzone.
+
+The outer deadzone can be used to avoid non-linear jumps in sensitivity programmed into the game,
+which feel unnatural with gyro aim.
+
+Note that outer deadzone config option is asking for the size of the deadzone, not where the deadzone starts.
+If there's a jump in acceleration at 92% stick tilt, you want an 8% outer deadzone.
+
+Deadzone Finder helps precisely find inner deadzone. Titan will tilt the joystick at the configured inner deadzone.
+Find the highest value of inner deadzone where the camera DOESN'T move.
+
+Some games have a sharp jump in acceleration when the joystick is tilted near 100%.
+This is undesirable for gyro aim, but might be desirable while using the stick because it helps you turn around faster in game.
+MULTILINE
+control = info
+
+[Info: Calibrate gyro on startup]
+shortdesc = <<<MULTILINE
+Place the controller on a flat surface and do not move it until the LEDs change color.
+The script is averaging sensor data to filter out unwanted sensor noise; this helps fight drift.
+MULTILINE
+control = info
 </cfgdesc>
 
+[Credits]
+shortdesc = <<<MULTILINE
+Most of the concepts used and a lot of the code came from Jibb Smart's gyro wiki:
+http://gyrowiki.jibbsmart.com
+As well as Jibb Smart's JoyShockMapper project:
+https://github.com/Electronicks/JoyShockMapper
+Thank you!
+MULTILINE
+control = info
+</cfgdesc>
 */
-
 #include <mouse.gph>
 
 uint32 offsetSamples;
@@ -103,62 +286,96 @@ fix32 calibratedGyro[2];
 fix32 gyroCalibration[2];
 fix32 accumulatedOffset[2];
 fix32 camera[2];
+fix32 gyroStickX;
+fix32 gyroStickY;
 
+bool stickEmulation = TRUE; //FALSE for mouse output
 bool enableAccel = FALSE;
 bool calibrating = TRUE;
+bool outerStickOverride = TRUE;
+bool logging = FALSE;
 bool deadZoneFinder = FALSE;
-bool overwatch_hack = FALSE;
-fix32 undeadzoneInner = 0.26;
-fix32 undeadzoneOuter = 0.08; //0.08
-fix32 maxStickGameSpeed = 33.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS
+fix32 undeadzoneInner = 0.0;
+fix32 undeadzoneOuter = 0.0;
+
+fix32 maxStickGameSpeed = 20.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS, apparently?
+
 fix32 smoothThreshold = 0.0;
 fix32 tightThreshold = 0.0;
+
 fix32 slowSensitivity = 1.0;
 fix32 fastSensitivity = 1.0;
 fix32 slowThreshold = 1.0;
 fix32 fastThreshold = 1.0;
-fix32 gyroStickX = 0.0;
-fix32 gyroStickY = 0.0;
+
 fix32 unpower = 0.0;
 
 fix32 virtualScale = 1.0;
 fix32 sensitivity = 1.0;
 
 init {
+  pmem_load();
+  deadZoneFinder = (pmem_read(22)) & 0b1;
+  outerStickOverride = (pmem_read(22)>>1) & 0b1;
+  enableAccel = (pmem_read(22)>>2) & 0b1;
+  calibrating = (pmem_read(22)>>3) & 0b1;
+
+  unpower = pmem_read_int16tofix32(7)/100.0;
+  undeadzoneInner = pmem_read_int16tofix32(8)/100.0;
+  undeadzoneOuter = pmem_read_int16tofix32(9)/100.0;
+  
+  maxStickGameSpeed = pmem_read_int16tofix32(5)*256.0;
+  
+  sensitivity = pmem_read_int16tofix32(1);
+  printf("%f", maxStickGameSpeed);
+
+
+}
+
+// read fix16 from pmem position ( read int16 and return it as fix32 )
+fix32 pmem_read_int16tofix32 (uint8 pmem_location) {
+  int16 valInt16;
+  pmem_read(pmem_location, &valInt16);
+  return (fix32)valInt16 / 256.0;
 }
 
 main {
   deltaTime += elapsed_time();
-  //GPC bug? titan unresponsive when deltaTime loop is less than 4ms
+  //GPC bug? titan unresponsive when deltaTime loop is less than 4ms, or if loop absent
   if (deltaTime >= 4) {//delay main() loop at ~250Hz
     gyroVelocity[0] = get_actual(GYRO_1_Z);
     gyroVelocity[1] = get_actual(GYRO_1_X);
     processInput(deltaTime);
-    //Logic from JSM operates on a scale of 0-1
-    if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.00)) {
-      //Nothing here because set_val can't be in the loop.
-      //Just reminding myself that this function returns a bool
-      //and the set_val was here in JSM...
+    if (stickEmulation) {
+      //Logic from JSM operates on a scale of 0-1
+      if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.00)) {
+        //Nothing here because set_val can't be in the loop.
+        //Just reminding myself that this function returns a bool
+        //and the set_val was here in JSM...
+      }
     }
     deltaTime = 0;
   }
   
   //set_val must be outside the polling loop!
   //lest values bounce back to 0 every cycle
-  if (deadZoneFinder == TRUE) {
-    // hack to help with finding deadzones more quickly
-    set_val(STICK_1_X, undeadzoneInner * 100.00);
-  } else {
-    set_val(STICK_1_X, gyroStickX * 100.00);
-    set_val(STICK_1_Y, gyroStickY * 100.00);
-  }
   
-  //hack for overwatch: skip outer deadzone logic for the actual joystick
-  //gyro is still subject to deadzone and thus remains linear.
-  //stick now has access to overwatch's snappy stick turn logic
-  if (overwatch_hack == TRUE) {
-    if (get_actual(STICK_1_X) >= 92.0 || get_actual(STICK_1_X) <= -92.0)  {
-      set_val(STICK_1_X, get_actual(STICK_1_X));
+  if  (stickEmulation) {
+    if (deadZoneFinder == TRUE) {
+      // hack to help with finding deadzones more quickly
+      set_val(STICK_1_X, undeadzoneInner * 100.00);
+    } else {
+      set_val(STICK_1_X, gyroStickX * 100.00);
+      set_val(STICK_1_Y, gyroStickY * 100.00);
+    }
+    //hack for overwatch/misc: skip outer deadzone logic for the actual joystick
+    //gyro is still subject to deadzone and thus remains linear.
+    //stick now has access to overwatch's snappy stick turn logic
+    if (outerStickOverride == TRUE) {
+      if (get_actual(STICK_1_X) >= 92.0 || get_actual(STICK_1_X) <= -92.0)  {
+        set_val(STICK_1_X, get_actual(STICK_1_X));
+        //set_val(STICK_1_Y, get_actual(STICK_1_Y));
+      }
     }
   }
   
@@ -167,17 +384,15 @@ main {
   //Thus _any_ noise causes drift in the negative direction,
   //but rounding filters out legitimate movement. Unsure how to proceed.
   //TODO: linear rescale to > 1.0
-  /*
-camera[0] = (camera[0] < 0.0) ? ceil(camera[0]) : camera[0];
-camera[1] = (camera[1] < 0.0) ? ceil(camera[1]) : camera[1];
-mouse_set(MOUSE_X, (int32)camera[0]);
-mouse_set(MOUSE_Y, (int32)camera[1]);
-  */
+  camera[0] = (camera[0] < 0.0) ? ceil(camera[0]) : camera[0];
+  camera[1] = (camera[1] < 0.0) ? ceil(camera[1]) : camera[1];
+  mouse_set(MOUSE_X, (int32)camera[0]);
+  mouse_set(MOUSE_Y, (int32)camera[1]);
 }
 
 void processInput(uint32 deltaTime) {
   //calibrating
-  if (calibrating ) {
+  if (calibrating) {
     offsetSamples++;
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
@@ -372,20 +587,22 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     gyroStickY = expectedY / targetGyroVelocity * gyroInStickStrength;
   }
   
-  printf("camera0: %f",camera[0]);
-  printf("camera1: %f",camera[1]);
-  printf("gyroVelocity0: %f",gyroVelocity[0]);
-  printf("gyroVelocity1: %f",gyroVelocity[1]);
-  printf("stickX: %f",stickX);
-  printf("stickY: %f",stickY);
-  printf("expectedX: %f",expectedX);
-  printf("expectedY: %f",expectedY);
-  printf("gyroStickX %f", gyroStickX);
-  printf("gyroStickY %f", gyroStickY);
-  printf("stickLength: %f",stickLength);
-  printf("stickVelocity: %f",stickVelocity);
-  printf("targetGyroVelocity: %f",targetGyroVelocity);
-  printf("gyroInStickStrength: %f",gyroInStickStrength);
+  if (logging) {
+    printf("camera0: %f",camera[0]);
+    printf("camera1: %f",camera[1]);
+    printf("gyroVelocity0: %f",gyroVelocity[0]);
+    printf("gyroVelocity1: %f",gyroVelocity[1]);
+    printf("stickX: %f",stickX);
+    printf("stickY: %f",stickY);
+    printf("expectedX: %f",expectedX);
+    printf("expectedY: %f",expectedY);
+    printf("gyroStickX %f", gyroStickX);
+    printf("gyroStickY %f", gyroStickY);
+    printf("stickLength: %f",stickLength);
+    printf("stickVelocity: %f",stickVelocity);
+    printf("targetGyroVelocity: %f",targetGyroVelocity);
+    printf("gyroInStickStrength: %f",gyroInStickStrength);
+  }
   
   return stickLength > undeadzoneInner;
 }
