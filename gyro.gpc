@@ -1,5 +1,442 @@
 #pragma METAINFO("Gyro Aim", 1, 0, "Aelius")
 
+/* TODO
+fix unpower
+fix left stick output (hold)
+add jsm config names for visibility
+user configurable smoothing buffer size in IC?
+flickstick mouse
+flickstick joystick?
+player space gyro
+implement on demand calibrate? or just tell user to reload script
+on demand adjust of sens/speed/smooth/etc? and pmem_save
+optimize variables and memory usage
+
+NOTES
+- The TitanTwo seems to map gyro data onto a range of 0.00-102.399994 rather than reporting angular velocity.
+- mouse_set does not support fix32 output, and int32 is not precise enough at slow speeds.
+**** mouse mouse is hurt by this limitation.
+*/
+
+#include <mouse.gph>
+#define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
+
+//Misc Globals
+uint32 offsetSamples;
+uint32 counter = 0;
+fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
+fix32 calibratedGyro[2];
+fix32 gyroCalibration[2];
+fix32 accumulatedOffset[2];
+fix32 camera[2];
+fix32 gyroStickX;
+fix32 gyroStickY;
+
+
+//Settings
+uint8 stickEmulation = 0; //0 for mouse output, 1 for right stick, 2 for left stick
+bool enableAccel = FALSE;
+bool calibrating = FALSE;
+bool outerStickOverride = FALSE;
+bool logging = FALSE;
+bool deadZoneFinder = FALSE;
+fix32 undeadzoneInner = 0.0;
+fix32 undeadzoneOuter = 0.0;
+fix32 maxStickGameSpeed = 40.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS, apparently?
+fix32 smoothThreshold = 0.0;
+fix32 tightThreshold = 0.0;
+fix32 slowSensitivity = 1.0;
+fix32 fastSensitivity = 5.0;
+fix32 slowThreshold = 1.0;
+fix32 fastThreshold = 10.0;
+fix32 unpower = 0.0;
+fix32 virtualScale = 1.0;
+fix32 sensitivity = 1.0;
+
+
+
+init {
+  pmem_load();
+  stickEmulation = (pmem_read(0));
+  
+  deadZoneFinder = (pmem_read(25)) & 0b1;
+  outerStickOverride = (pmem_read(25)>>1) & 0b1;
+  enableAccel = (pmem_read(25)>>2) & 0b1;
+  calibrating = (pmem_read(25)>>3) & 0b1;
+  
+  pmem_read(17, &undeadzoneInner);
+  undeadzoneInner /= 100.0;
+  pmem_read(32, &undeadzoneOuter);
+  undeadzoneOuter /= 100.0;
+  
+  pmem_read(1, &sensitivity);
+  pmem_read(5, &virtualScale);
+  pmem_read(13, &unpower);
+  pmem_read(9, &maxStickGameSpeed);
+  pmem_read(34, &slowThreshold);
+  pmem_read(38, &fastThreshold);
+  pmem_read(26, &slowSensitivity);
+  pmem_read(30, &fastSensitivity);
+  pmem_read(42, &tightThreshold);
+  pmem_read(46, &smoothThreshold);
+}
+
+
+
+main {
+  uint32 deltaTime;
+  deltaTime += elapsed_time();
+  //GPC bug? titan unresponsive when deltaTime loop is less than 4ms, or if loop absent
+  if (deltaTime >= 4) {//delay main() loop at ~250Hz
+    printf("X %f", camera[0]);
+    printf("Y %f", camera[1]);
+    gyroVelocity[0] = get_actual(GYRO_1_Z)/2.0; //Half, because it brings us pretty close to matching JSM's virtual output.
+    gyroVelocity[1] = get_actual(GYRO_1_X)/2.0;
+    processInput(deltaTime);
+    if (stickEmulation == 1) {//Right stick
+      //Logic from JSM operates on a scale of 0-1
+      if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.00)) {}
+    }
+    if (stickEmulation == 2) {//Left stick
+      //Logic from JSM operates on a scale of 0-1
+      if (processGyroStick(get_actual(STICK_2_X)/100.00, get_actual(STICK_2_Y)/100.00)) {}
+    }
+    deltaTime = 0;
+  }
+  
+  //set_val must be outside the polling loop!
+  //lest values bounce back to 0 every cycle
+  
+  if  (stickEmulation) {
+    if (deadZoneFinder == TRUE) {
+      // hack to help with finding deadzones more quickly
+      set_val(STICK_1_X, undeadzoneInner * 100.00);
+    } else if (stickEmulation == 1) {
+      set_val(STICK_1_X, gyroStickX * 100.00);
+      set_val(STICK_1_Y, gyroStickY * 100.00);
+    } else if (stickEmulation == 2) {
+      set_val(STICK_2_X, gyroStickX * 100.00);
+      set_val(STICK_2_Y, gyroStickY * 100.00);
+    }
+    //Hack for overwatch/misc: skip outer deadzone logic for the actual joystick
+    //Gyro is still subject to deadzone and thus remains linear,
+    //stick now has access to overwatch's snappy stick turn logic
+    if (outerStickOverride == TRUE) {
+      if (get_actual(STICK_1_X) >= 92.0 || get_actual(STICK_1_X) <= -92.0)  {
+        set_val(STICK_1_X, get_actual(STICK_1_X));
+        //We most likely want vertical aim to work while turning, so leave Y alone
+        //Maybe reuse gyroInStickStrength logic later
+        //Or just readd outer deadzone back into the math when stick is exceeds it?
+        //set_val(STICK_1_Y, get_actual(STICK_1_Y)); 
+      }
+    }
+  }
+  
+  //GPC bug? mouse_set only accepts int32, which is not precise enough.
+  //Typecasting to int32 always rounds down, such that 0.8==0 but -0.8==-1
+  //Thus _any_ noise causes drift in the negative direction,
+  //but rounding filters out legitimate movement.
+  //TODO: linear rescale to > 1.0. End user must use rawAccel to fix.
+  if (stickEmulation == 0) {//mouse
+    
+    //fix32 mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
+    fix32 mouseCalibration = 0.1;
+    fix32 mouseX = camera[0] * mouseCalibration * (fix32)deltaTime;
+    fix32 mouseY = (camera[1] - 1.0) * mouseCalibration * (fix32)deltaTime;
+    
+    mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;
+    mouseY = (mouseY < 0.0) ? ceil(mouseY) : mouseY;
+    mouse_set(MOUSE_X, (int32)mouseX);
+    mouse_set(MOUSE_Y, (int32)mouseY);
+  }
+}
+
+void processInput(uint32 deltaTime) {
+  //calibrating
+  if (calibrating) {
+    offsetSamples++;
+    accumulatedOffset[0] += gyroVelocity[0];
+    accumulatedOffset[1] += gyroVelocity[1];
+    printf("calibrating!", 0);
+    counter++;
+    if (counter > 500) {
+      led_set(LED_1, 50.0, 0);
+      led_set(LED_2, 50.0, 0);
+      led_set(LED_3, 50.0, 0);
+      led_set(LED_4, 0.0, 0);
+      calibrating = FALSE;
+    }
+  }
+  
+  gyroCalibration[0] = getCalibrationOffset(0);
+  gyroCalibration[1] = getCalibrationOffset(1);
+  calibratedGyro[0] = (gyroVelocity[0] - gyroCalibration[0]);
+  calibratedGyro[1] = (gyroVelocity[1] - gyroCalibration[1]);
+  
+  //smoothing
+  if (smoothThreshold > 0.0) {
+    calibratedGyro[0] = getTieredSmoothedInput0(calibratedGyro[0], calibratedGyro[1], smoothThreshold/2.0, smoothThreshold);
+    calibratedGyro[1] = getTieredSmoothedInput1(calibratedGyro[0], calibratedGyro[1], smoothThreshold/2.0, smoothThreshold);
+  }
+  
+  //tightening
+  if (tightThreshold > 0.0) {
+    calibratedGyro[0] = getTightenedInput0(calibratedGyro[0], calibratedGyro[1], tightThreshold);
+    calibratedGyro[1] = getTightenedInput1(calibratedGyro[0], calibratedGyro[1], tightThreshold);
+  }
+  
+  calibratedGyro[0] = smoothJSM0(calibratedGyro[0], calibratedGyro[1]);
+  calibratedGyro[1] = smoothJSM1(calibratedGyro[0], calibratedGyro[1]);
+  
+  //accelerating
+  if (enableAccel) {
+    processGyroAccel(calibratedGyro[0], calibratedGyro[1], deltaTime, slowSensitivity, fastSensitivity, slowThreshold, fastThreshold);
+  } else {
+    processGyroInput(calibratedGyro[0], calibratedGyro[1], deltaTime, sensitivity);
+  }
+}
+
+fix32 getCalibrationOffset(int32 n) {
+  if (offsetSamples == 0) {
+    return 0.0;
+  }
+  if (n==0) {
+    return accumulatedOffset[0] / (fix32)offsetSamples;
+  } else if (n==1) {
+    return accumulatedOffset[1] / (fix32)offsetSamples;
+  }
+  return 0.0; //GPC won't compile if function returns are in conditionals
+}
+
+void resetCalibration() {
+  offsetSamples = 0;
+  accumulatedOffset = 0.0;
+}
+
+void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1,
+uint32 deltaTime, fix32 gyroSensitivity) {
+  camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
+  camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
+}
+
+// smoothing buffer - adapted from blog
+fix32 getDirectInput(fix32 input) {//What is this function even doing?
+  return input;
+}
+
+fix32 InputBuffer0[SMOOTH_BUFFER_SIZE];
+int32 CurrentInputIndex0;
+fix32 InputBuffer1[SMOOTH_BUFFER_SIZE];
+int32 CurrentInputIndex1;
+
+fix32 getSmoothedInput0(fix32 input) {
+  CurrentInputIndex0 = (int32)mod((fix32)CurrentInputIndex0 + (fix32)1, (fix32)SMOOTH_BUFFER_SIZE);
+  InputBuffer0[CurrentInputIndex0] = input;
+  fix32 average = 0.0;
+  int32 i;
+  for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
+    average += InputBuffer0[i];
+  }
+  average /= (fix32)SMOOTH_BUFFER_SIZE;
+  return average;
+}
+
+fix32 getSmoothedInput1(fix32 input) {
+  CurrentInputIndex1 = (int32)mod((fix32)CurrentInputIndex1 + (fix32)1, (fix32)SMOOTH_BUFFER_SIZE);
+  InputBuffer1[CurrentInputIndex1] = input;
+  fix32 average = 0.0;
+  int32 i;
+  for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
+    average += InputBuffer1[i];
+  }
+  average /= (fix32)SMOOTH_BUFFER_SIZE;
+  return average;
+}
+fix32 getTieredSmoothedInput0(fix32 input0, fix32 input1, fix32 threshold1, fix32 threshold2) {
+  fix32 inputMagnitude = pythag(input0, input1);
+  fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
+  directWeight = clamp(directWeight, 0.0, 1.0);
+  return getDirectInput(input0 * directWeight) + getSmoothedInput0(input0 * (1.0 - directWeight));
+}
+fix32 getTieredSmoothedInput1(fix32 input0, fix32 input1, fix32 threshold1, fix32 threshold2) {
+  fix32 inputMagnitude = pythag(input0, input1);
+  fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
+  directWeight = clamp(directWeight, 0.0, 1.0);
+  return getDirectInput(input1 * directWeight) + getSmoothedInput1(input1 * (1.0 - directWeight));
+}
+
+fix32 smoothJSM0(fix32 gyroX, fix32 gyroY) {
+  
+  /* fix32 gyroLength = sqrt(gyroX * gyroX + gyroY * gyroY); */
+// do gyro smoothing
+// convert gyro smooth time to number of samples
+  /* auto numGyroSamples = jc->getSetting(SettingID::GYRO_SMOOTH_TIME) * 1000.f / tick_time.get(); */
+  /* if (numGyroSamples < 1) */
+  /* 	numGyroSamples = 1; // need at least 1 sample */
+  /* auto threshold = jc->getSetting(SettingID::GYRO_SMOOTH_THRESHOLD); */
+  /* jc->GetSmoothedGyro(gyroX, gyroY, gyroLength, threshold / 2.0f, threshold, int(numGyroSamples), gyroX, gyroY); */
+  /* //COUT << "%d Samples for threshold: %0.4f\n", numGyroSamples, gyro_smooth_threshold * maxSmoothingSamples); */
+  
+  // now, honour gyro_cutoff_speed
+  fix32 gyroLength = pythag(gyroX, gyroY);
+  fix32 speed = 0.0; //GYRO_CUTOFF_SPEED;
+  fix32 recovery = 00.0; //GYRO_CUTOFF_RECOVERY;
+  if (recovery > speed) {
+    // we can use gyro_cutoff_speed
+    fix32 gyroIgnoreFactor = (gyroLength - speed) / (recovery - speed);
+    if (gyroIgnoreFactor < 1.0) {
+      if (gyroIgnoreFactor <= 0.0) {
+        gyroX = gyroY = gyroLength = 0.0;
+      } else {
+        gyroX *= gyroIgnoreFactor;
+        gyroY *= gyroIgnoreFactor;
+        gyroLength *= gyroIgnoreFactor;
+      }
+    }
+  }
+  else if (speed > 0.0 && gyroLength < speed) {
+    // gyro_cutoff_recovery is something weird, so we just do a hard threshold
+    gyroX = gyroY = gyroLength = 0.0;
+  }
+  return gyroX;
+}
+fix32 smoothJSM1(fix32 gyroX, fix32 gyroY) {
+  // now, honour gyro_cutoff_speed
+  fix32 gyroLength = pythag(gyroX, gyroY);
+  fix32 speed = 0.0; //GYRO_CUTOFF_SPEED;
+  fix32 recovery = 00.0; //GYRO_CUTOFF_RECOVERY;
+  if (recovery > speed) {
+    // we can use gyro_cutoff_speed
+    fix32 gyroIgnoreFactor = (gyroLength - speed) / (recovery - speed);
+    if (gyroIgnoreFactor < 1.0) {
+      if (gyroIgnoreFactor <= 0.0) {
+        gyroX = gyroY = gyroLength = 0.0;
+      } else {
+        gyroX *= gyroIgnoreFactor;
+        gyroY *= gyroIgnoreFactor;
+        gyroLength *= gyroIgnoreFactor;
+      }
+    }
+  }
+  else if (speed > 0.0 && gyroLength < speed) {
+    // gyro_cutoff_recovery is something weird, so we just do a hard threshold
+    gyroX = gyroY = gyroLength = 0.0;
+  }
+  return gyroY;
+}
+
+
+//tight
+fix32 getTightenedInput0(fix32 input0, fix32 input1, fix32 threshold) {
+  fix32 inputMagnitude = pythag(input0, input1);
+  if (inputMagnitude < threshold) {
+    fix32 inputScale = inputMagnitude / threshold;
+    return input0 * inputScale;
+  }
+  return input0;
+}
+fix32 getTightenedInput1(fix32 input0, fix32 input1, fix32 threshold) {
+  fix32 inputMagnitude = pythag(input0, input1);
+  if (inputMagnitude < threshold) {
+    fix32 inputScale = inputMagnitude / threshold;
+    return input1 * inputScale;
+  }
+  return input1;
+}
+
+//accel
+void processGyroAccel(fix32 calibratedGyro0, fix32 calibratedGyro1,
+uint32 deltaTime, fix32 sensitivitySlow, fix32 sensitivityFast,
+fix32 slowThreshold, fix32 fastThreshold) {
+  // apply calibration factor
+  // get input velocity
+  fix32 magnitude = pythag(calibratedGyro0, calibratedGyro1);
+  // calculate position on slowThreshold to fastThreshold scale
+  magnitude -= slowThreshold;
+  if (magnitude < 0.0) {
+    magnitude = 0.0;
+  }
+  fix32 denom = fastThreshold - slowThreshold;
+  fix32 newSensitivity;
+  if (denom <= 0.0) {
+    newSensitivity = magnitude > 0.0 ? 1.0 : 0.0; // if min threshold overlaps max threshold, pop up to
+    // max lowSens as soon as we're above min threshold
+  } else {
+    newSensitivity = magnitude / denom;
+  }
+  if (newSensitivity > 1.0) {
+    newSensitivity = 1.0;
+  }
+  // interpolate between low sensitivity and high sensitivity
+  newSensitivity = lerp(sensitivitySlow, sensitivityFast, newSensitivity);
+  camera[0] = calibratedGyro0 * newSensitivity * (fix32)deltaTime;
+  camera[1] = calibratedGyro1 * newSensitivity * (fix32)deltaTime;
+}
+
+
+fix32 pythag(fix32 a, fix32 b) {
+  return sqrt( sq(a) + sq(b) );
+}
+
+bool processGyroStick(fix32 stickX, fix32 stickY) {
+  fix32 stickLength = pythag(stickX, stickY);
+  fix32 livezoneSize = 1.0 - undeadzoneOuter - undeadzoneInner;
+  //in order to correctly combine gyro and stick, we need to calculate what the stick
+  //aiming is supposed to be doing, add gyro result to it, and convert back to stick
+  if (unpower == 0.0) {
+    unpower = 1.0;
+  }
+  fix32 stickVelocity = pow(clamp((stickLength - undeadzoneInner) / livezoneSize, 0.0, 1.0), unpower) * maxStickGameSpeed * virtualScale;
+  fix32 expectedX = 0.0;
+  fix32 expectedY = 0.0;
+  gyroStickX = 0.0;
+  gyroStickY = 0.0;
+  
+  if (stickVelocity > 0.0) {
+    expectedX = stickX / stickLength * stickVelocity;
+    expectedY = stickY / stickLength * stickVelocity;
+  }
+  
+  expectedX += camera[0];
+  expectedY += camera[1];
+  
+  fix32 targetGyroVelocity = pythag(expectedX, expectedY);
+  // map gyro velocity to achievable range in 0-1
+  fix32 gyroInStickStrength = targetGyroVelocity >= maxStickGameSpeed ? 1.0 : targetGyroVelocity / maxStickGameSpeed;
+  // unpower curve
+  //broken for 2+???
+  if (unpower != 0.0) {
+    gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
+  }
+  
+  // remap to between inner and outer deadzones
+  if (gyroInStickStrength > 0.010) {
+    gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
+    gyroStickX = expectedX / targetGyroVelocity * gyroInStickStrength;
+    gyroStickY = expectedY / targetGyroVelocity * gyroInStickStrength;
+  }
+  
+  if (logging) {
+    printf("camera0: %f",camera[0]);
+    printf("camera1: %f",camera[1]);
+    printf("gyroVelocity0: %f",gyroVelocity[0]);
+    printf("gyroVelocity1: %f",gyroVelocity[1]);
+    printf("stickX: %f",stickX);
+    printf("stickY: %f",stickY);
+    printf("expectedX: %f",expectedX);
+    printf("expectedY: %f",expectedY);
+    printf("gyroStickX %f", gyroStickX);
+    printf("gyroStickY %f", gyroStickY);
+    printf("stickLength: %f",stickLength);
+    printf("stickVelocity: %f",stickVelocity);
+    printf("targetGyroVelocity: %f",targetGyroVelocity);
+    printf("gyroInStickStrength: %f",gyroInStickStrength);
+  }
+  
+  return stickLength > undeadzoneInner;
+}
+
+
 /*
 <shortdesc>
 Use your controller's gyro to aim! Supports outputting as mouse or joystick. Supports flickstick when in mouse mode. See interactive config for help.
@@ -8,25 +445,7 @@ Use your controller's gyro to aim! Supports outputting as mouse or joystick. Sup
 <keywords>
 gyro mouse flickstick
 </keywords>
-*/
 
-/* TODO
-fix scale of thresholds (which are hopefully in degrees/s)
-fix unpower
-fix sensitivity
-fix left stick output (hold)
-add jsm config names for visibility
-finish interactive config
-flickstick mouse
-flickstick joystick
-player space gyro
-fix mouse
-make printfs a function or something maybe
-implement on demand calibrate? or just tell user to reload script
-on demand adjust of sens/speed/smooth/etc? and pmem_save
-*/
-
-/* IC
 <cfgdesc>
 
 [Layout]
@@ -36,7 +455,7 @@ bitsize = 8
 bitoffset = 0
 control = radiobox
 default = 0
-item = Gyro controls mouse
+item = Gyro controls mouse (incomplete)
 item = Gyro controls right joystick
 item = Gyro controls left joystick (incomplete)
 [Layout Flickstick]
@@ -155,7 +574,7 @@ bitoffset = 0
 control = spinboxf
 decimals = 2
 default = 00050
-minimum = 00001
+minimum = 00000
 maximum = 10000
 step = 001
 groupcol = true
@@ -212,8 +631,8 @@ bitoffset = 0
 control = spinboxf
 decimals = 2
 default = 0
-minimum = 00000
-maximum = 10000
+minimum = 000000
+maximum = 100000
 step = 100
 groupcol = true
 [Misc: Smoothing threshold]
@@ -224,18 +643,18 @@ bitoffset = 0
 control = spinboxf
 decimals = 2
 default = 0
-minimum = 00000
-maximum = 10000
+minimum = 000000
+maximum = 100000
 step = 100
 group = true
 
-[Info: Mouse vs Joystick]
+[Info: Mouse vs Joystick?]
 shortdesc = <<<MULTILINE
-Gyro is functionally equivalent to mouse, and this script is best used in mouse mode where possible.
-While I have included joystick emulation, it may not feel ideal.
-In fact, since gyro is a mouse, it will feel a lot like you're trying to map a mouse to the joystick!
-For joystick only games, it would make a lot of sense to output as mouse into a Xim, so that you can use a Xim smart translator.
-This is effectively what the Xim Nexus is!
+Gyro is functionally equivalent to mouse, and is best experienced when mapped to a mouse. However, I encountered some limitations with the TitanTwo and GPC, so things here are not ideal.
+Mouse mode does work pretty well when paired with a XIM, though- try it for yourself and see if it works for you.
+
+Joystick out is emulating a joystick, but how this feels will vary from game to game. In fact, since gyro is basically a mouse, it will feel a lot like you're trying to map a mouse to the joystick!
+This code is not as comprehensive as XIM smart translators - so you may prefer to use mouse mode + XIM in one game, and the built in joystick emulation in other games.
 MULTILINE
 control = info
 
@@ -261,10 +680,9 @@ control = info
 [Info: Un-Deadzone]
 shortdesc = <<<MULTILINE
 Each game has its own joystick inner deadzone set by the developers.
-If this script knows where the deadzone is, we can use that as the starting point for gyro outpoint, effectively eliminating the inner deadzone.
+If this script knows where the deadzone is, it can use that as the starting point for gyro outpoint, effectively eliminating the inner deadzone.
 
-The outer deadzone can be used to avoid non-linear jumps in sensitivity programmed into the game,
-which feel unnatural with gyro aim.
+The outer deadzone can be used to avoid non-linear jumps in sensitivity programmed into the game, which feel unnatural with gyro aim.
 
 Note that outer deadzone config option is asking for the size of the deadzone, not where the deadzone starts.
 If there's a jump in acceleration at 92% stick tilt, you want an 8% outer deadzone.
@@ -272,7 +690,7 @@ If there's a jump in acceleration at 92% stick tilt, you want an 8% outer deadzo
 Deadzone Finder helps precisely find inner deadzone. Titan will tilt the joystick at the configured inner deadzone.
 Find the highest value of inner deadzone where the camera DOESN'T move.
 
-Some games have a sharp jump in acceleration when the joystick is tilted near 100%.
+Stick overrides outer deadzone: Some games have a sharp jump in acceleration when the joystick is tilted near 100%.
 This is undesirable for gyro aim, but might be desirable while using the stick because it helps you turn around faster in game.
 MULTILINE
 control = info
@@ -292,7 +710,27 @@ The script is averaging sensor data to filter out unwanted sensor noise; this he
 
 Tightening squishes output towards zero below the threshold, used to help prevent jitter when trying to hold still at higher sensitivities.
 
-Smoothing helps reduce jitter below the threshold, useful for unsteady hands, or to smooth out noise with higher sensitivities.
+Smoothing helps reduce jitter above the threshold, useful for unsteady hands, or to smooth out noise with higher sensitivities.
+MULTILINE
+control = info
+
+[Info: Speed Thresholds?]
+shortdesc = <<<MULTILINE
+Normally, you configure thresholds like this in values of degrees per second: how fast you are turning the controller. Unfortunately the TitanTwo doesn't present raw gyro data in this way, so the threshold number here is more abstract.
+Try values like 0.01 when trying to set a threshold that activates when moving as slow as possible. The highest sensible values is somewhere under 200.
+
+You can test where a threshold is by enabling acceleration with slow sensitivity 0, slow threshold 0, fast sensitivity 0.01. Then set fast threshold to the desired test number and see how fast you must move the controller to get a response.
+MULTILINE
+control = info
+
+[Mouse Suggested Setup]
+shortdesc = <<<MULTILINE
+Enable acceleration, set slow sensitivity to 5.00 and slow threshold to 0.01.
+Set fast sensitivity to your desired normal sensitivity, and fast threshold to 1 or 2.
+
+The limitation I encountered with GPC is that mouse_set does not support precise values, so there's effectively a deadzone that you will notice when trying to move very slowly.
+Acceleration set up in this way minimizes the issue. Try playing with different values in the same neighborhood, as well as tightening and smoothing. See what feels best to you.
+Joystick emulation doesn't have this limitation.
 MULTILINE
 control = info
 </cfgdesc>
@@ -308,428 +746,3 @@ MULTILINE
 control = info
 </cfgdesc>
 */
-#include <mouse.gph>
-
-//Misc Globals
-uint32 offsetSamples;
-uint32 counter = 0;
-fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
-fix32 calibratedGyro[2];
-fix32 gyroCalibration[2];
-fix32 accumulatedOffset[2];
-fix32 camera[2];
-fix32 gyroStickX;
-fix32 gyroStickY;
-
-
-//Settings
-uint8 stickEmulation; //0 for mouse output, 1 for right stick, 2 for left stick
-bool enableAccel = FALSE;
-bool calibrating = TRUE;
-bool outerStickOverride = FALSE;
-bool logging = FALSE;
-bool deadZoneFinder = FALSE;
-fix32 undeadzoneInner = 0.0;
-fix32 undeadzoneOuter = 0.0;
-fix32 maxStickGameSpeed = 40.0;//REAL_WORLD_CALIBRATION/IN_GAME_SENS, apparently?
-fix32 smoothThreshold = 0.0;
-fix32 tightThreshold = 0.0;
-fix32 slowSensitivity = 1.0;
-fix32 fastSensitivity = 5.0;
-fix32 slowThreshold = 1.0;
-fix32 fastThreshold = 10.0;
-fix32 unpower = 0.0;
-fix32 virtualScale = 1.0;
-fix32 sensitivity = 1.0;
-
-init {
-  pmem_load();
-  stickEmulation = (pmem_read(0));
-  
-  deadZoneFinder = (pmem_read(25)) & 0b1;
-  outerStickOverride = (pmem_read(25)>>1) & 0b1;
-  enableAccel = (pmem_read(25)>>2) & 0b1;
-  calibrating = (pmem_read(25)>>3) & 0b1;
-  
-  pmem_read(17, &undeadzoneInner);
-  undeadzoneInner /= 100.0;
-  pmem_read(32, &undeadzoneOuter);
-  undeadzoneOuter /= 100.0;
-  
-  pmem_read(1, &sensitivity);
-  pmem_read(5, &virtualScale);
-  pmem_read(13, &unpower);
-  pmem_read(9, &maxStickGameSpeed);
-  pmem_read(34, &slowThreshold);
-  pmem_read(38, &fastThreshold);
-  pmem_read(26, &slowSensitivity);
-  pmem_read(30, &fastSensitivity);
-  pmem_read(42, &tightThreshold);
-  pmem_read(46, &smoothThreshold);
-}
-
-
-main {
-  uint32 deltaTime;
-  deltaTime += elapsed_time();
-  //GPC bug? titan unresponsive when deltaTime loop is less than 4ms, or if loop absent
-  if (deltaTime >= 4) {//delay main() loop at ~250Hz
-    gyroVelocity[0] = get_actual(GYRO_1_Z);
-    gyroVelocity[1] = get_actual(GYRO_1_X);
-    processInput(deltaTime);
-    if (stickEmulation == 1) {//Right stick
-      //Logic from JSM operates on a scale of 0-1
-      if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.00)) {}
-    }
-    if (stickEmulation == 2) {//Left stick
-      //Logic from JSM operates on a scale of 0-1
-      if (processGyroStick(get_actual(STICK_2_X)/100.00, get_actual(STICK_2_Y)/100.00)) {}
-    }
-    deltaTime = 0;
-  }
-  
-  //set_val must be outside the polling loop!
-  //lest values bounce back to 0 every cycle
-  
-  if  (stickEmulation) {
-    if (deadZoneFinder == TRUE) {
-      // hack to help with finding deadzones more quickly
-      set_val(STICK_1_X, undeadzoneInner * 100.00);
-    } else if (stickEmulation == 1) {
-      set_val(STICK_1_X, gyroStickX * 100.00);
-      set_val(STICK_1_Y, gyroStickY * 100.00);
-    } else if (stickEmulation == 2) {
-      set_val(STICK_2_X, gyroStickX * 100.00);
-      set_val(STICK_2_Y, gyroStickY * 100.00);
-    }
-    //Hack for overwatch/misc: skip outer deadzone logic for the actual joystick
-    //Gyro is still subject to deadzone and thus remains linear,
-    //stick now has access to overwatch's snappy stick turn logic
-    if (outerStickOverride == TRUE) {
-      if (get_actual(STICK_1_X) >= 92.0 || get_actual(STICK_1_X) <= -92.0)  {
-        set_val(STICK_1_X, get_actual(STICK_1_X));
-        //We most likely want vertical aim to work while turning, so leave Y alone
-        //Maybe reuse gyroInStickStrength logic later
-        //Or just readd outer deadzone back into the math when stick is exceeds it?
-        //set_val(STICK_1_Y, get_actual(STICK_1_Y)); 
-      }
-    }
-  }
-  
-  //GPC bug? mouse_set only accepts int32, which is not precise enough.
-  //Typecasting to int32 always rounds down, such that 0.8==0 but -0.8==-1
-  //Thus _any_ noise causes drift in the negative direction,
-  //but rounding filters out legitimate movement.
-  //TODO: linear rescale to > 1.0. End user must use rawAccel to fix.
-  if (stickEmulation == 0) {//mouse
-    
-    //camera[0] = camera[0] / 100.0;
-    //camera[1] = camera[1] / 100.0;
-    fix32 mLength = pythag(camera[0], camera[1]);
-    fix32 scaledLength = (mLength - 1.0) / (0.0 - 1.0);
-    //float scaledLength = (length - innerDeadzone) / (outerDeadzone - innerDeadzone);
-    fix32 mVelocity = clamp((mLength - 1.0) / 99.0, 0.0, 1.0);
-    //gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
-    //camera[0] = camera[0] / 1.0 + mLength * mVelocity;
-    //camera[1] = camera[1] / 1.0 + mLength * mVelocity;
-    //camera[0] *= scaledLength; //need to clamp or something
-    //camera[1] *= scaledLength;
-    //camera[0] /= 100.0;
-    //camera[1] /= 100.0;
-    camera[0] = (camera[0] < 0.0) ? ceil(camera[0]) : camera[0];
-    camera[1] = (camera[1] < 0.0) ? ceil(camera[1]) : camera[1];
-    //printf("sL: %f", scaledLength);
-    //set_val(  STICK_1_X, camera[0]);
-    mouse_set(MOUSE_X, (int32)camera[0]);
-    mouse_set(MOUSE_Y, (int32)camera[1]);
-  }
-}
-
-void processInput(uint32 deltaTime) {
-  //calibrating
-  if (calibrating) {
-    offsetSamples++;
-    accumulatedOffset[0] += gyroVelocity[0];
-    accumulatedOffset[1] += gyroVelocity[1];
-    printf("calibrating!", 0);
-    counter++;
-    if (counter > 500) {
-      led_set(LED_1, 50.0, 0);
-      led_set(LED_2, 50.0, 0);
-      led_set(LED_3, 50.0, 0);
-      led_set(LED_4, 0.0, 0);
-      calibrating = FALSE;
-    }
-  }
-  
-  gyroCalibration[0] = getCalibrationOffset(0);
-  gyroCalibration[1] = getCalibrationOffset(1);
-  calibratedGyro[0] = gyroVelocity[0] - gyroCalibration[0];
-  calibratedGyro[1] = gyroVelocity[1] - gyroCalibration[1];  
-  
-  //smoothing
-    if (smoothThreshold > 0.0) {
-      calibratedGyro[0] = getTieredSmoothedInput0(calibratedGyro[0], calibratedGyro[1], smoothThreshold/2.0, smoothThreshold);
-      calibratedGyro[1] = getTieredSmoothedInput1(calibratedGyro[0], calibratedGyro[1], smoothThreshold/2.0, smoothThreshold);
-    }
-  
-  //tightening
-  if (tightThreshold > 0.0) {
-    calibratedGyro[0] = getTightenedInput0(calibratedGyro[0], calibratedGyro[1], tightThreshold);
-    calibratedGyro[1] = getTightenedInput1(calibratedGyro[0], calibratedGyro[1], tightThreshold);
-  }
-  
-  
-  //accelerating
-  if (enableAccel) {
-    processGyroAccel(calibratedGyro[0], calibratedGyro[1], deltaTime, slowSensitivity,
-    fastSensitivity, slowThreshold, fastThreshold);
-  } else {
-    processGyroInput(calibratedGyro[0], calibratedGyro[1], deltaTime, sensitivity);
-  }
-}
-
-fix32 getCalibrationOffset(int32 n) {
-  if (offsetSamples == 0) {
-    return 0.0;
-  }
-  if (n==0) {
-    return accumulatedOffset[0] / (fix32)offsetSamples;
-  } else if (n==1) {
-    return accumulatedOffset[1] / (fix32)offsetSamples;
-  }
-  return 0.0; //GPC won't compile if function returns are in conditionals
-}
-
-void resetCalibration() {
-  offsetSamples = 0;
-  accumulatedOffset = 0.0;
-}
-
-void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1,
-uint32 deltaTime, fix32 gyroSensitivity) {
-  camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
-  camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
-}
-
-// smoothing buffer - adapted from blog
-fix32 getDirectInput(fix32 input) {
-  return input;
-}
-fix32 InputBuffer0[64];
-int32 CurrentInputIndex0;
-fix32 InputBuffer1[64];
-int32 CurrentInputIndex1;
-fix32 getSmoothedInput0(fix32 input) {
-  CurrentInputIndex0 = (int32)mod((fix32)CurrentInputIndex0 + (fix32)1, (fix32)64);
-  InputBuffer0[CurrentInputIndex0] = input;
-  fix32 average = 0.0;
-  int32 i;
-  for (i = 0; i < 64; i++) {
-    average += InputBuffer0[i];
-  }
-  average /= 64.0;
-  return average;
-}
-fix32 getSmoothedInput1(fix32 input) {
-  CurrentInputIndex1 = (int32)mod((fix32)CurrentInputIndex1 + (fix32)1, (fix32)64);
-  InputBuffer1[CurrentInputIndex1] = input;
-  fix32 average = 0.0;
-  int32 i;
-  for (i = 0; i < 64; i++) {
-    average += InputBuffer1[i];
-  }
-  average /= 64.0;
-  return average;
-}
-fix32 getTieredSmoothedInput0(fix32 input0, fix32 input1, fix32 threshold1, fix32 threshold2) {
-  fix32 inputMagnitude = pythag(input0, input1);
-  fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
-  directWeight = clamp(directWeight, 0.0, 1.0);
-  return getDirectInput(input0 * directWeight) + getSmoothedInput0(input0 * (1.0 - directWeight));
-}
-fix32 getTieredSmoothedInput1(fix32 input0, fix32 input1, fix32 threshold1, fix32 threshold2) {
-  fix32 inputMagnitude = pythag(input0, input1);
-  fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
-  directWeight = clamp(directWeight, 0.0, 1.0);
-  return getDirectInput(input1 * directWeight) + getSmoothedInput1(input1 * (1.0 - directWeight));
-}
-
-/* void smoothJSM() { */
-
-/* 	float gyroLength = sqrt(gyroX * gyroX + gyroY * gyroY); */
-/* 	// do gyro smoothing */
-/* 	// convert gyro smooth time to number of samples */
-/* 	auto numGyroSamples = jc->getSetting(SettingID::GYRO_SMOOTH_TIME) * 1000.f / tick_time.get(); */
-/* 	if (numGyroSamples < 1) */
-/* 		numGyroSamples = 1; // need at least 1 sample */
-/* 	auto threshold = jc->getSetting(SettingID::GYRO_SMOOTH_THRESHOLD); */
-/* 	jc->GetSmoothedGyro(gyroX, gyroY, gyroLength, threshold / 2.0f, threshold, int(numGyroSamples), gyroX, gyroY); */
-/* 	//COUT << "%d Samples for threshold: %0.4f\n", numGyroSamples, gyro_smooth_threshold * maxSmoothingSamples); */
-
-/* 	// now, honour gyro_cutoff_speed */
-/* 	gyroLength = sqrt(gyroX * gyroX + gyroY * gyroY); */
-/* 	auto speed = jc->getSetting(SettingID::GYRO_CUTOFF_SPEED); */
-/* 	auto recovery = jc->getSetting(SettingID::GYRO_CUTOFF_RECOVERY); */
-/* 	if (recovery > speed) */
-/* 	{ */
-/* 		// we can use gyro_cutoff_speed */
-/* 		float gyroIgnoreFactor = (gyroLength - speed) / (recovery - speed); */
-/* 		if (gyroIgnoreFactor < 1.0f) */
-/* 		{ */
-/* 			if (gyroIgnoreFactor <= 0.0f) */
-/* 			{ */
-/* 				gyroX = gyroY = gyroLength = 0.0f; */
-/* 			} */
-/* 			else */
-/* 			{ */
-/* 				gyroX *= gyroIgnoreFactor; */
-/* 				gyroY *= gyroIgnoreFactor; */
-/* 				gyroLength *= gyroIgnoreFactor; */
-/* 			} */
-/* 		} */
-/* 	} */
-/* 	else if (speed > 0.0f && gyroLength < speed) */
-/* 	{ */
-/* 		// gyro_cutoff_recovery is something weird, so we just do a hard threshold */
-/* 		gyroX = gyroY = gyroLength = 0.0f; */
-/* 	} */
-
-/* } */
-
-
-
-//tight
-fix32 getTightenedInput0(fix32 input0, fix32 input1, fix32 threshold) {
-  fix32 inputMagnitude = pythag(input0, input1);
-  if (inputMagnitude < threshold) {
-    fix32 inputScale = inputMagnitude / threshold;
-    return input0 * inputScale;
-  }
-  return input0;
-}
-fix32 getTightenedInput1(fix32 input0, fix32 input1, fix32 threshold) {
-  fix32 inputMagnitude = pythag(input0, input1);
-  if (inputMagnitude < threshold) {
-    fix32 inputScale = inputMagnitude / threshold;
-    return input1 * inputScale;
-  }
-  return input1;
-}
-
-//accel
-void processGyroAccel(fix32 calibratedGyro0, fix32 calibratedGyro1,
-uint32 deltaTime, fix32 sensitivitySlow, fix32 sensitivityFast,
-fix32 slowThreshold, fix32 fastThreshold) {
-  // how fast is the gyro moving?
-  fix32 speed = pythag(calibratedGyro0, calibratedGyro1);
-  
-  // where do we stand between the slow threshold and the fast threshold?
-  fix32 slowFastFactor = (speed - slowThreshold) / (fastThreshold - slowThreshold);
-  slowFastFactor = clamp(slowFastFactor, 0.0, 1.0); //is this the right scale for gpc?
-  // linearly interpolate
-  fix32 newSensitivity = lerp(sensitivitySlow, slowFastFactor, sensitivityFast);
-  
-  // now apply this sensitivity the way we originally did
-  camera[0] = calibratedGyro0 * newSensitivity * (fix32)deltaTime;
-  camera[1] = calibratedGyro1 * newSensitivity * (fix32)deltaTime;
-}
-
-/* void accel2() { */
-
-/* 	// apply calibration factor */
-/* 	// get input velocity */
-/* 	float magnitude = sqrt(gyroX * gyroX + gyroY * gyroY); */
-/* 	// COUT << "Gyro mag: " << setprecision(4) << magnitude << endl; */
-/* 	// calculate position on minThreshold to maxThreshold scale */
-/* 	float minThreshold = jc->getSetting(SettingID::MIN_GYRO_THRESHOLD); */
-/* 	float maxThreshold = jc->getSetting(SettingID::MAX_GYRO_THRESHOLD); */
-/* 	magnitude -= minThreshold; */
-/* 	if (magnitude < 0.0f) */
-/* 		magnitude = 0.0f; */
-/* 	float denom = maxThreshold - minThreshold; */
-/* 	float newSensitivity; */
-/* 	if (denom <= 0.0f) */
-/* 	{ */
-/* 		newSensitivity = */
-/* 		  magnitude > 0.0f ? 1.0f : 0.0f; // if min threshold overlaps max threshold, pop up to */
-/* 		                                  // max lowSens as soon as we're above min threshold */
-/* 	} */
-/* 	else */
-/* 	{ */
-/* 		newSensitivity = magnitude / denom; */
-/* 	} */
-/* 	if (newSensitivity > 1.0f) */
-/* 		newSensitivity = 1.0f; */
-
-/* 	// interpolate between low sensitivity and high sensitivity */
-/* 	gyroXVelocity *= lowSensXY.first * (1.0f - newSensitivity) + hiSensXY.first * newSensitivity; */
-/* 	gyroYVelocity *= lowSensXY.second * (1.0f - newSensitivity) + hiSensXY.second * newSensitivity; */
-
-/* 	jc->gyroXVelocity = gyroXVelocity; */
-/* 	jc->gyroYVelocity = gyroYVelocity; */
-
-/* } */
-
-
-fix32 pythag(fix32 a, fix32 b) {
-  return sqrt( sq(a) + sq(b) );
-}
-
-bool processGyroStick(fix32 stickX, fix32 stickY) {
-  fix32 stickLength = pythag(stickX, stickY);
-  fix32 livezoneSize = 1.0 - undeadzoneOuter - undeadzoneInner;
-  //in order to correctly combine gyro and stick, we need to calculate what the stick
-  //aiming is supposed to be doing, add gyro result to it, and convert back to stick
-  if (unpower == 0.0) {
-    unpower = 1.0;
-  }
-  fix32 stickVelocity = pow(clamp((stickLength - undeadzoneInner) / livezoneSize, 0.0, 1.0), unpower) * maxStickGameSpeed * virtualScale;
-  fix32 expectedX = 0.0;
-  fix32 expectedY = 0.0;
-  gyroStickX = 0.0;
-  gyroStickY = 0.0;
-  
-  if (stickVelocity > 0.0) {
-    expectedX = stickX / stickLength * stickVelocity;
-    expectedY = stickY / stickLength * stickVelocity;
-  }
-  
-  expectedX += camera[0];
-  expectedY += camera[1];
-  
-  fix32 targetGyroVelocity = pythag(expectedX, expectedY);
-  // map gyro velocity to achievable range in 0-1
-  fix32 gyroInStickStrength = targetGyroVelocity >= maxStickGameSpeed ? 1.0 : targetGyroVelocity / maxStickGameSpeed;
-  // unpower curve
-  //broken for 2+???
-  if (unpower != 0.0) {
-    gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
-  }
-  
-  // remap to between inner and outer deadzones
-  if (gyroInStickStrength > 0.010) {
-    gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
-    gyroStickX = expectedX / targetGyroVelocity * gyroInStickStrength;
-    gyroStickY = expectedY / targetGyroVelocity * gyroInStickStrength;
-  }
-  
-  if (logging) {
-    printf("camera0: %f",camera[0]);
-    printf("camera1: %f",camera[1]);
-    printf("gyroVelocity0: %f",gyroVelocity[0]);
-    printf("gyroVelocity1: %f",gyroVelocity[1]);
-    printf("stickX: %f",stickX);
-    printf("stickY: %f",stickY);
-    printf("expectedX: %f",expectedX);
-    printf("expectedY: %f",expectedY);
-    printf("gyroStickX %f", gyroStickX);
-    printf("gyroStickY %f", gyroStickY);
-    printf("stickLength: %f",stickLength);
-    printf("stickVelocity: %f",stickVelocity);
-    printf("targetGyroVelocity: %f",targetGyroVelocity);
-    printf("gyroInStickStrength: %f",gyroInStickStrength);
-  }
-  
-  return stickLength > undeadzoneInner;
-}
