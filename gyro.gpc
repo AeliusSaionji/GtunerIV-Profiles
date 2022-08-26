@@ -3,6 +3,8 @@
 /*
 
 END USER CUSTOMIZATION GUIDE - README
+* Create a mapping for gyro_Off = TRUE to rachet the controller.
+-- if (is_active(yourbutton)) {GYRO_OFF();}
 * Initiate a recalibration with combo_run(recalibrate).
 -- You may need to do this periodically.
 -- Place controller on a flat and steady surface before calibrating.
@@ -19,13 +21,16 @@ NOTES
 **** mouse mouse is hurt by this limitation.
 
 TODO
-
+checkactive for gyro?
+mystery of GYRO_OFF() working for mouse OR stick but not both
+implement tightening in reverse for mouse?
+fix thresholds artificially to somewhat match JSM?
+--update recommendations
 xim specific axis fix?
 fix left stick output (hold)
 add jsm config names for visibility
 user configurable smoothing buffer size in IC?
 user configurable mouseCalibration
-gyro_off
 flickstick mouse
 flickstick joystick?
 winding flickstick seems like a good idea
@@ -57,7 +62,7 @@ bool enableAccel = FALSE;
 bool calibrating = TRUE;
 bool outerStickOverride = FALSE;
 bool stickDisable = FALSE;
-bool logging = TRUE;
+bool logging = FALSE;
 bool deadZoneFinder = FALSE;
 fix32 undeadzoneInner = 0.0;
 fix32 undeadzoneOuter = 0.0;
@@ -83,7 +88,8 @@ init {
   outerStickOverride = (pmem_read(25)>>1) & 0b1;
   enableAccel        = (pmem_read(25)>>2) & 0b1;
   calibrating        = (pmem_read(25)>>3) & 0b1;
-  stickDisable       = (pmem_read(25)>>4) & 0b1;
+  //flickstick       = (pmem_read(25)>>3) & 0b1;
+  stickDisable       = (pmem_read(25)>>5) & 0b1;
   //fix32s
   pmem_read(17, &undeadzoneInner);
   pmem_read(21, &undeadzoneOuter);
@@ -117,22 +123,26 @@ init {
 }
 
 main {
+  if (is_active(BUTTON_4)) {
+    GYRO_OFF();
+  }
+  
   uint32 deltaTime;
   deltaTime += elapsed_time();
   //GPC bug? titan unresponsive when deltaTime loop is less than 4ms, or if loop absent
   if (deltaTime >= 4) {//delay main() loop at ~250Hz
     //printf("X %f", camera[0]);
     //printf("Y %f", camera[1]);
-    gyroVelocity[0] = get_actual(GYRO_1_Z)/2.0; //Half, because it brings us pretty close to matching JSM's virtual output.
-    gyroVelocity[1] = get_actual(GYRO_1_X)/2.0;
+    gyroVelocity[0] = get_actual(GYRO_1_Z);
+    gyroVelocity[1] = get_actual(GYRO_1_X);
     processInput(deltaTime);
     if (stickEmulation == 1) {//Right stick
       //Logic from JSM operates on a scale of 0-1
-      if (processGyroStick(get_actual(STICK_1_X)/100.00, get_actual(STICK_1_Y)/100.0)) {} //returns a bool
+      if (processGyroStick(get_actual(STICK_1_X)/100.0, get_actual(STICK_1_Y)/100.0)) {} //returns a bool
     }
     if (stickEmulation == 2) {//Left stick
       //Logic from JSM operates on a scale of 0-1
-      if (processGyroStick(get_actual(STICK_2_X)/100.00, get_actual(STICK_2_Y)/100.0)) {} //returns a bool
+      if (processGyroStick(get_actual(STICK_2_X)/100.0, get_actual(STICK_2_Y)/100.0)) {} //returns a bool
     }
     deltaTime = 0;
   }
@@ -176,7 +186,7 @@ main {
     //fix32 mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
     fix32 mouseCalibration = 0.1;
     fix32 mouseX = camera[0] * mouseCalibration * (fix32)deltaTime;
-    fix32 mouseY = (camera[1] - 1.0) * mouseCalibration * (fix32)deltaTime;
+    fix32 mouseY = camera[1] * mouseCalibration * (fix32)deltaTime;
     
     mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;
     mouseY = (mouseY < 0.0) ? ceil(mouseY) : mouseY;
@@ -187,10 +197,15 @@ main {
       set_val(STICK_1_X, 0.0);//disable right joystick
       set_val(STICK_1_Y, 0.0);
     } else if (virtualScale != 1.0) {//Apply virtualScale aka stickSensitivity
-      set_val(STICK_1_X, get_actual(STICK_1_X)/virtualScale);
-      set_val(STICK_1_Y, get_actual(STICK_1_Y)/virtualScale);
+      set_val(STICK_1_X, get_actual(STICK_1_X) * virtualScale);
+      set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtualScale);
     }
   }
+}
+
+void GYRO_OFF() {
+  calibratedGyro[0] = 0.0;
+  camera[1] = 0.0;
 }
 
 void processInput(uint32 deltaTime) {
@@ -477,22 +492,27 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   if (unpower == 0.0) {
     unpower = 1.0;
   }
-  maxStickGameSpeed = 100.0;
+  
   fix32 stickVelocity = pow(clamp((stickLength - undeadzoneInner) / livezoneSize, 0.0, 1.0), unpower) * maxStickGameSpeed * virtualScale;
   fix32 expectedX = 0.0;
   fix32 expectedY = 0.0;
   gyroStickX = 0.0;
   gyroStickY = 0.0;
   
+  
   if (stickVelocity > 0.0) {
-    expectedX = stickX / stickLength * stickVelocity;
-    expectedY = stickY / stickLength * stickVelocity;
+    expectedX = (stickX / stickLength) * stickVelocity;
+    expectedY = (stickY / stickLength) * stickVelocity;
   }
   
-  expectedX += camera[0];
-  expectedY += camera[1];
+  //The original JSM function translates in-game turn velocity into units equivalent
+  //to real world turn velocity, because a gyroscope reports real velocity.
+  //TitanTwo reports everything including gyro on a scale of -100 to 100, so we need to work around this.
+  expectedX += camera[0]*3.6; //the gyro readings top out at roughly 100.
+  expectedY += camera[1]*3.6; //100 * 3.6 = 360.
   
-  fix32 targetGyroVelocity = pythag(expectedX, expectedY);
+  fix32 targetGyroVelocity = pythag(expectedX/10.0, expectedY/10.0) * 10.0; //sq(expected) exceeds fix32 range, oops!
+  
   // map gyro velocity to achievable range in 0-1
   fix32 gyroInStickStrength = targetGyroVelocity >= maxStickGameSpeed ? 1.0 : targetGyroVelocity / maxStickGameSpeed;
   // unpower curve
@@ -503,8 +523,8 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   // remap to between inner and outer deadzones
   if (gyroInStickStrength > 0.010) {
     gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
-    gyroStickX = expectedX / targetGyroVelocity * gyroInStickStrength;
-    gyroStickY = expectedY / targetGyroVelocity * gyroInStickStrength;
+    gyroStickX = (expectedX / targetGyroVelocity) * gyroInStickStrength;
+    gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
   }
   
   if (logging) {
@@ -514,14 +534,15 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     printf("gyroVelocity1:       %f", gyroVelocity[1]);
     printf("stickX:              %f", stickX);
     printf("stickY:              %f", stickY);
-    printf("expectedX:           %f", expectedX);
-    printf("expectedY:           %f", expectedY);
-    printf("gyroStickX:          %f", gyroStickX);
-    printf("gyroStickY:          %f", gyroStickY);
     printf("stickLength:         %f", stickLength);
     printf("stickVelocity:       %f", stickVelocity);
+    printf("expectedX:           %f", expectedX);
+    printf("expectedY:           %f", expectedY);
     printf("targetGyroVelocity:  %f", targetGyroVelocity);
     printf("gyroInStickStrength: %f", gyroInStickStrength);
+    printf("gyroStickX:          %f", gyroStickX);
+    printf("gyroStickY:          %f", gyroStickY);
+    printf("--",0);
   }
   
   return stickLength > undeadzoneInner;
@@ -650,7 +671,7 @@ control = spinboxf
 decimals = 2
 default = 36000
 minimum = 00001
-maximum = 50000
+maximum = 99999
 step = 000010
 groupcol = true
 [unpower]
@@ -663,7 +684,7 @@ decimals = 2
 default = 000
 minimum = 000
 maximum = 200
-step = 100
+step = 010
 group = true
 
 [Un-Deadzone (joystick mode only)]
@@ -804,18 +825,18 @@ bitsize = 8
 byteoffset = 50
 control = combobox
 default = 0
-item = No change
+item = TitanTwo configured global default
 item = PROTOCOL_AUTO
 item = PROTOCOL_PS4
 item = PROTOCOL_XB360
 item = PROTOCOL_HID (HID required for mouse)
 item = BT PROTOCOL_HID (HID required for mouse)
-item = BT PROTOCOL_PS3
-item = BT PROTOCOL_PS4
-item = BT PROTOCOL_XB360
-item = BT PROTOCOL_XB1
-item = BT PROTOCOL_SWITCH
-item = BT PROTOCOL_WII
+item = Bluetooth PROTOCOL_PS3
+item = Bluetooth PROTOCOL_PS4
+item = Bluetooth PROTOCOL_XB360
+item = Bluetooth PROTOCOL_XB1
+item = Bluetooth PROTOCOL_SWITCH
+item = Bluetooth PROTOCOL_WII
 
 [Info: Mouse vs Joystick?]
 shortdesc = <<<MULTILINE
