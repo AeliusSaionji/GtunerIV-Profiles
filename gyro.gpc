@@ -17,12 +17,13 @@ END USER CUSTOMIZATION GUIDE - README
 
 NOTES
 - The TitanTwo seems to map gyro data onto a range of 0.00-102.399994 rather than reporting angular velocity.
-- mouse_set does not support fix32 output, and int32 is not precise enough at slow speeds.
-**** mouse mouse is hurt by this limitation.
+
 - Beware math functions which may exceed fix32 range (check calls to pythag)
 
 TODO
 add report latency output, note that it's unused
+settings for offsetM
+steam controller has latency? requires deltatime? only calibrate with the unique data but don't generally processInput there?
 gyro off when using winding, but not touching stick (for touch = gyro weirdos)
 implement checks for calls that exceed data type (and definitely put the check in pythag)
 press start r2 r1 to start recalibrate combo
@@ -50,14 +51,18 @@ optimize variables and memory usage
 #include <mouse.gph>
 #include <keyboard.gph>
 #define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
+#define MOUSE_ACCUMULATOR 5
+#define CALIBRATION_COUNTER 250 //lower for steam controller
 
 //Misc Globals
 uint32 offsetSamples;
 uint32 counter = 0;
+uint32 mouseSamples;
 fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
 fix32 calibratedGyro[2];
 fix32 gyroCalibration[2];
 fix32 accumulatedOffset[2];
+fix32 accumulatedMouse[2];
 fix32 camera[2];
 fix32 gyroStickX;
 fix32 gyroStickY;
@@ -84,6 +89,7 @@ fix32 fastThreshold = 10.0;
 fix32 unpower = 0.0;
 fix32 virtualScale = 1.0;
 fix32 sensitivity = 1.0;
+fix32 offsetM = 0.9;
 
 init {
   pmem_load();
@@ -172,7 +178,6 @@ rawZ: %d<br>\
       delta: %dms", gX, gY, gZ, reportLatency);*/
       
       processInput(1);
-      //processMouse(reportLatency);
       reportLatency = 0;
     }
     reportLatency++;
@@ -192,10 +197,10 @@ rawZ: %d<br>\
     //if (deltaTime > 25) { deltaTime = 0; }//If SteamController idles, deltaTime will ++ without bounds
     
     
-    //gyroVelocity[0] = get_actual(GYRO_1_Z);
-    //gyroVelocity[1] = get_actual(GYRO_1_X);
-    gyroVelocity[0] = (fix32)gZ/-15.0;//On first blush, divide by 15 seems close to degrees/s, hopefully linear.
-    gyroVelocity[1] = (fix32)gX/-15.0;//Not sure how useful the raw data is over the regular titan input
+    gyroVelocity[0] = get_actual(GYRO_1_Z);
+    gyroVelocity[1] = get_actual(GYRO_1_X);
+    //gyroVelocity[0] = (fix32)gZ/-15.0;//On first blush, divide by 15 seems close to degrees/s, hopefully linear.
+    //gyroVelocity[1] = (fix32)gX/-15.0;//Not sure how useful the raw data is over the regular titan input
     //processInput(deltaTime);
     if (stickEmulation == 1) {//Right stick
       //Logic from JSM operates on a scale of 0-1
@@ -238,44 +243,10 @@ rawZ: %d<br>\
       }
     }
   }
-  
-  //GPC bug? mouse_set only accepts int32, which is not precise enough.
-  //Typecasting to int32 always rounds down, such that 0.8==0 but -0.8==-1
-  //Thus _any_ noise causes drift in the negative direction,
-  //but rounding filters out legitimate movement.
-  //TODO (?): linear rescale to > 1.0. End user must use rawAccel to fix.
+
   if (stickEmulation == 0) {//mouse
-    fix32 mouseCalibration  = 0.005;
-    fix32 mouseX = camera[0] * mouseCalibration;
-    fix32 mouseY = camera[1] * mouseCalibration;
-    
     //fix32 mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
-    
-    /*
-    fix32 offsetM = 0.45;
-    mouseX = (mouseX > 0.0) ? mouseX + offsetM : mouseX - offsetM;
-    mouseY = (mouseY > 0.0) ? mouseY + offsetM : mouseY - offsetM;
-    */
-    
-    //must be the last thing before mouse_set
-    mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;
-    mouseY = (mouseY < 0.0) ? ceil(mouseY) : mouseY; 
-    mouse_set(MOUSE_X, (int32)mouseX);
-    mouse_set(MOUSE_Y, (int32)mouseY);
-    
-    if (logging) {
-      logDelay++;//fast output unreadable, because the
-      if (logDelay >= 66) {//gtuner gui only updates at 30fps :[
-        printf("<big><br>\
-        calibratedGyro[0]: %f<br>\
-        calibratedGyro[1]: %f<br>\
-        mouseX %d<br>\
-        mouseY %d<br>", camera[0]*mouseCalibration, camera[1]*mouseCalibration,
-        (int32)mouseX, (int32)mouseY);
-        logDelay = 0;
-      }
-    }
-    
+    processMouse(offsetM);
     //Controller is still passed as a joystick in HID output, it may be active
     if (stickDisable) {
       set_val(STICK_1_X, 0.0);//disable right joystick
@@ -292,17 +263,28 @@ int16 GetRaw(fix32 val) {
   return (int16)ceil(lerp(-32768f, 32767f, -((val + 100f) / 200f)));
 }
 
-//unused so far
-void processMouse(uint32 deltaTime) {
-  fix32 mouseCalibration = 1.0;
-  fix32 mouseX = camera[0] * mouseCalibration * (fix32)deltaTime;
-  fix32 mouseY = camera[1] * mouseCalibration * (fix32)deltaTime;
+void processMouse(fix32 offsetM) {
+  fix32 mouseX, mouseY;
+  mouseSamples++;
+  accumulatedMouse[0] += camera[0];
+  accumulatedMouse[1] += camera[1];
+  //Accumulate some samples, helps prevent deadzone for small values
+  if (mouseSamples >= MOUSE_ACCUMULATOR) {
+    mouseX = accumulatedMouse[0] * sensitivity;
+    mouseY = accumulatedMouse[1] * sensitivity;
+    mouseSamples = 0;
+    accumulatedMouse[0] = 0.0;
+    accumulatedMouse[1] = 0.0;
+  }
+  //Offset is a hack to prevent deadzone by raising the noisefloor
+  mouseX = (mouseX > 0.0) ? mouseX + offsetM : mouseX - offsetM;
+  mouseY = (mouseY > 0.0) ? mouseY + offsetM : mouseY - offsetM;
   
-  mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;
-  mouseY = (mouseY < 0.0) ? ceil(mouseY) : mouseY;
-  printf("mouse %f", mouseX);
-  mouse_set(MOUSE_X, (int32)mouseX);
-  mouse_set(MOUSE_Y, (int32)mouseY);
+  //typecasting always rounds down; must round negatives up to prevent drift
+  mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;//must be before mouse_set!
+  mouseY = (mouseY < 0.0) ? ceil(mouseY) : mouseY;//must be before mouse_set!
+  mouse_set(MOUSE_X, (int32)mouseX);//Warning! Typecast behavior rounds down!
+  mouse_set(MOUSE_Y, (int32)mouseY);//Warning! Typecast behavior rounds down
 }
 
 void GYRO_OFF() {
@@ -319,7 +301,7 @@ void processInput(uint32 deltaTime) {
     accumulatedOffset[1] += gyroVelocity[1];
     printf("calibrating!", 0);
     counter++;
-    if (counter > 1000) {
+    if (counter > CALIBRATION_COUNTER) {
       led_set(LED_1, 50.0, 0);
       led_set(LED_2, 50.0, 0);
       led_set(LED_3, 50.0, 0);
@@ -342,8 +324,8 @@ void processInput(uint32 deltaTime) {
   }
   
   //cutoff/recovery... and maybe the jsm smoothing
-  //calibratedGyro[0] = smoothJSM0(calibratedGyro[0], calibratedGyro[1], 0.0, 0.1);
-  //calibratedGyro[1] = smoothJSM1(calibratedGyro[0], calibratedGyro[1], 0.0, 0.1);
+  //calibratedGyro[0] = smoothJSM0(calibratedGyro[0], calibratedGyro[1], 0.0, 0.000001);
+  //calibratedGyro[1] = smoothJSM1(calibratedGyro[0], calibratedGyro[1], 0.0, 0.000001);
   
   //tightening
   if (tightThreshold > 0.0) {
@@ -658,7 +640,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   }
   
   if (logging) {
-    printf("<big><b><br>\
+    printf("<big><br>\
     camera0: %f<br>\
     camera1: %f<br>\
     gyroVelocity0: %f<br>\
@@ -666,7 +648,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     stickX: %f<br>\
     stickY: %f<br>\
     stickLength: %f<br>\
-    stickVelocity: %f<br)\
+    stickVelocity: %f<br>\
     expectedX: %f<br>\
     expectedY: %f<br>\
     targetGyroVelocity: %f<br>\
