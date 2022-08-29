@@ -22,12 +22,9 @@ NOTES
 
 TODO
 add report latency output, note that it's unused
-settings for offsetM
-steam controller has latency? requires deltatime? only calibrate with the unique data but don't generally processInput there?
 gyro off when using winding, but not touching stick (for touch = gyro weirdos)
 implement checks for calls that exceed data type (and definitely put the check in pythag)
 press start r2 r1 to start recalibrate combo
-warn about steam controller sleeping during calibration
 remove accel bool, exchange for remembered settings IC thing, false if 0, whatever jsm does
 see if can leverage IC thing for user presets
 mystery of GYRO_OFF() working for mouse OR stick but not both
@@ -37,7 +34,6 @@ xim specific axis fix?
 fix left stick output (hold)
 add jsm config names for visibility
 user configurable smoothing buffer size in IC?
-user configurable mouseCalibration
 flickstick mouse
 flickstick joystick?
 winding flickstick seems like a good idea
@@ -52,7 +48,6 @@ optimize variables and memory usage
 #include <keyboard.gph>
 #define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
 #define MOUSE_ACCUMULATOR 5
-#define CALIBRATION_COUNTER 250 //lower for steam controller
 
 //Misc Globals
 uint32 offsetSamples;
@@ -68,9 +63,14 @@ fix32 gyroStickX;
 fix32 gyroStickY;
 uint32 logDelay;
 
+int16 gX;
+int16 gY;
+int16 gZ;
+
 //Settings
 uint8 stickEmulation = 1; //0 for mouse output, 1 for right stick, 2 for left stick
 uint8 outProtocol = 0;
+uint16 calibrationCounter = 1000;
 bool enableAccel = FALSE;
 bool calibrating = TRUE;
 bool outerStickOverride = FALSE;
@@ -89,14 +89,15 @@ fix32 fastThreshold = 10.0;
 fix32 unpower = 0.0;
 fix32 virtualScale = 1.0;
 fix32 sensitivity = 1.0;
-fix32 offsetM = 0.9;
+fix32 offsetNF = 0.9;
 
 init {
   pmem_load();
   
   //ints
-  stickEmulation = pmem_read(0);
-  outProtocol    = pmem_read(50);
+  stickEmulation     = pmem_read(0);
+  outProtocol        = pmem_read(50);
+  
   //bools
   deadZoneFinder     = (pmem_read(25))    & 0b1;
   outerStickOverride = (pmem_read(25)>>1) & 0b1;
@@ -104,7 +105,8 @@ init {
   calibrating        = (pmem_read(25)>>3) & 0b1;
   //flickstick       = (pmem_read(25)>>3) & 0b1;
   stickDisable       = (pmem_read(25)>>5) & 0b1;
-  //fix32s
+  //fix32s & int16s
+  pmem_read(55, &calibrationCounter);
   pmem_read(17, &undeadzoneInner);
   pmem_read(21, &undeadzoneOuter);
   undeadzoneInner /= 100.0;//0-1 scale
@@ -119,6 +121,7 @@ init {
   pmem_read(30, &fastSensitivity);
   pmem_read(42, &tightThreshold);
   pmem_read(46, &smoothThreshold);
+  pmem_read(51, &offsetNF);
   
   switch (outProtocol) {
     case 1:  port_connect(PORT_USB_C, PROTOCOL_AUTO);   break;
@@ -135,10 +138,10 @@ init {
     default: break;
   }
 }
-int16 gX;
-int16 gY;
-int16 gZ;
+
 main {
+  
+  //temp binds for testing
   if (is_active(BUTTON_15)) {
     GYRO_OFF();
   }
@@ -155,9 +158,8 @@ main {
   
   static uint32 deltaTime;
   deltaTime += elapsed_time();
-  //deltaTime detection thanks to consoletuner discord member ME.
   if (deltaTime >= 2) {//delay main() loop at least 500Hz, else GPC/Titan logic breaks
-    
+    //deltaTime detection thanks to consoletuner discord member ME.
     static uint32 reportLatency;
     static fix32 old_gyros;
     fix32 f_gX = get_val(GYRO_1_X);
@@ -170,38 +172,16 @@ main {
       gX = GetRaw(f_gX);
       gY = GetRaw(f_gY);
       gZ = GetRaw(f_gZ);
-      
-      /*printf("<big><b><br>\
-rawX: %d<br>\
-rawY: %d<br>\
-rawZ: %d<br>\
-      delta: %dms", gX, gY, gZ, reportLatency);*/
-      
-      processInput(1);
+      if (calibrating) { processInput(1); }//collect only uinque samples in calibration
       reportLatency = 0;
     }
-    reportLatency++;
-    
-    if (!logging) {
-      logDelay++;//fast output unreadable, because the
-      if (logDelay >= 33) {//gtuner gui only updates at 30fps :[
-        printf("<big><br>\
-        rawX: %d<br>\
-        rawY: %d<br>\
-        rawZ: %d<br>\
-        delta: %dms", gX, gY, gZ, reportLatency);
-        logDelay = 0;
-      }
-    }
-    
-    //if (deltaTime > 25) { deltaTime = 0; }//If SteamController idles, deltaTime will ++ without bounds
-    
+    reportLatency++;//ms since last unique measurement, native Hz = 1/ms
     
     gyroVelocity[0] = get_actual(GYRO_1_Z);
     gyroVelocity[1] = get_actual(GYRO_1_X);
     //gyroVelocity[0] = (fix32)gZ/-15.0;//On first blush, divide by 15 seems close to degrees/s, hopefully linear.
     //gyroVelocity[1] = (fix32)gX/-15.0;//Not sure how useful the raw data is over the regular titan input
-    //processInput(deltaTime);
+    if (!calibrating) { processInput(1); }//Always process input to avoid waiting if low polling rate
     if (stickEmulation == 1) {//Right stick
       //Logic from JSM operates on a scale of 0-1
       if (processGyroStick(get_actual(STICK_1_X)/100.0, get_actual(STICK_1_Y)/100.0)) {} //returns a bool
@@ -243,10 +223,10 @@ rawZ: %d<br>\
       }
     }
   }
-
+  
   if (stickEmulation == 0) {//mouse
     //fix32 mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
-    processMouse(offsetM);
+    processMouse();
     //Controller is still passed as a joystick in HID output, it may be active
     if (stickDisable) {
       set_val(STICK_1_X, 0.0);//disable right joystick
@@ -263,22 +243,25 @@ int16 GetRaw(fix32 val) {
   return (int16)ceil(lerp(-32768f, 32767f, -((val + 100f) / 200f)));
 }
 
-void processMouse(fix32 offsetM) {
+void processMouse() {
   fix32 mouseX, mouseY;
   mouseSamples++;
   accumulatedMouse[0] += camera[0];
   accumulatedMouse[1] += camera[1];
-  //Accumulate some samples, helps prevent deadzone for small values
+  //Accumulate some samples, helps prevent deadzone for small movements
   if (mouseSamples >= MOUSE_ACCUMULATOR) {
-    mouseX = accumulatedMouse[0] * sensitivity;
-    mouseY = accumulatedMouse[1] * sensitivity;
+    mouseX = accumulatedMouse[0];
+    mouseY = accumulatedMouse[1];
     mouseSamples = 0;
     accumulatedMouse[0] = 0.0;
     accumulatedMouse[1] = 0.0;
   }
-  //Offset is a hack to prevent deadzone by raising the noisefloor
-  mouseX = (mouseX > 0.0) ? mouseX + offsetM : mouseX - offsetM;
-  mouseY = (mouseY > 0.0) ? mouseY + offsetM : mouseY - offsetM;
+  
+  //This must come AFTER the accumulator
+  if (offsetNF > 0.0) {
+    mouseX = sensorOffset(mouseX, offsetNF);
+    mouseY = sensorOffset(mouseY, offsetNF);
+  }
   
   //typecasting always rounds down; must round negatives up to prevent drift
   mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;//must be before mouse_set!
@@ -286,6 +269,13 @@ void processMouse(fix32 offsetM) {
   mouse_set(MOUSE_X, (int32)mouseX);//Warning! Typecast behavior rounds down!
   mouse_set(MOUSE_Y, (int32)mouseY);//Warning! Typecast behavior rounds down
 }
+
+fix32 sensorOffset(fix32 input, fix32 offset) {
+  //Noise floor offset, additional hack to prevent deadzone for small movements
+  input = (input > 0.0) ? input + offset : input - offset;
+  return input;
+}
+
 
 void GYRO_OFF() {
   calibratedGyro[1] = 0.0;
@@ -300,11 +290,23 @@ void processInput(uint32 deltaTime) {
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
     printf("calibrating!", 0);
-    counter++;
-    if (counter > CALIBRATION_COUNTER) {
-      led_set(LED_1, 50.0, 0);
+    if (offsetSamples % 100 == 0) {
+      led_set(LED_1, 100.0, 0);
+      led_set(LED_2, 0.0, 0);
+      led_set(LED_3, 0.0, 0);
+      led_set(LED_4, 0.0, 0);
+    }
+    else if (offsetSamples % 50 == 0) {
+      led_set(LED_1, 25.0, 0);
       led_set(LED_2, 50.0, 0);
-      led_set(LED_3, 50.0, 0);
+      led_set(LED_3, 100.0, 0);
+      led_set(LED_4, 0.0, 0);
+    }
+    counter++;
+    if (counter > calibrationCounter) {
+      led_set(LED_1, 0.0, 0);
+      led_set(LED_2, 0.0, 0);
+      led_set(LED_3, 100.0, 0);
       led_set(LED_4, 0.0, 0);
       calibrating = FALSE;
     }
@@ -314,8 +316,6 @@ void processInput(uint32 deltaTime) {
   gyroCalibration[1] = getCalibrationOffset(1);
   calibratedGyro[0] = (gyroVelocity[0] - gyroCalibration[0]);
   calibratedGyro[1] = (gyroVelocity[1] - gyroCalibration[1]);
-  
-  
   
   //smoothing (from wiki)
   if (smoothThreshold > 0.0) {
@@ -333,17 +333,6 @@ void processInput(uint32 deltaTime) {
     calibratedGyro[1] = getTightenedInput1(calibratedGyro[0], calibratedGyro[1], tightThreshold);
   }
   
-  /* no good
-fix32 expandThresholdStart = 0.01;
-fix32 expandThresholdEnd = 2.0;
-//expanding
-if (expandThresholdEnd > 0.0) {
-calibratedGyro[0] = getExpandedInput0(calibratedGyro[0], calibratedGyro[1], expandThresholdStart, expandThresholdEnd);
-calibratedGyro[1] = getExpandedInput1(calibratedGyro[0], calibratedGyro[1], expandThresholdStart, expandThresholdEnd);
-printf("c0 %f", calibratedGyro[0]);
-printf("c0 %f", calibratedGyro[1]);
-  }*/
-  
   //accelerating
   if (enableAccel) {
     processGyroAccel(calibratedGyro[0], calibratedGyro[1], deltaTime, slowSensitivity, fastSensitivity, slowThreshold, fastThreshold);
@@ -352,16 +341,19 @@ printf("c0 %f", calibratedGyro[1]);
   }
 }
 
+void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, uint32 deltaTime, fix32 gyroSensitivity) {
+  camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
+  camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
+}
+
 fix32 getCalibrationOffset(int32 n) {
   if (offsetSamples == 0) {
     return 0.0;
   }
   if (n==0) {
     return accumulatedOffset[0] / (fix32)offsetSamples;
-  } else if (n==1) {
-    return accumulatedOffset[1] / (fix32)offsetSamples;
-  }
-  return 0.0; //GPC won't compile if function returns are in conditionals
+  } //flow dictates next line is technically else if
+  return accumulatedOffset[1] / (fix32)offsetSamples;
 }
 
 void resetCalibration() {
@@ -374,11 +366,6 @@ combo recalibrate {
   wait(0);
   wait(2000); //wait 2s for the user to take hands off controller
   calibrating = TRUE;
-}
-
-void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, uint32 deltaTime, fix32 gyroSensitivity) {
-  camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
-  camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
 }
 
 // smoothing buffer - adapted from blog
@@ -623,6 +610,12 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   expectedX += camera[0]*3.6; //the gyro readings top out at roughly 100.
   expectedY += camera[1]*3.6; //100 * 3.6 = 360.
   
+  //This might not be the right place, must examine with numbers
+  if (offsetNF > 0.0) {
+    expectedX = sensorOffset(expectedX, offsetNF);
+    expectedY = sensorOffset(expectedY, offsetNF);
+  }
+  
   fix32 targetGyroVelocity = pythag(expectedX/10.0, expectedY/10.0) * 10.0; //sq(expected) exceeds fix32 range, oops!
   
   // map gyro velocity to achievable range in 0-1
@@ -637,26 +630,6 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
     gyroStickX = (expectedX / targetGyroVelocity) * gyroInStickStrength;
     gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
-  }
-  
-  if (logging) {
-    printf("<big><br>\
-    camera0: %f<br>\
-    camera1: %f<br>\
-    gyroVelocity0: %f<br>\
-    gyroVelocity1: %f<br>\
-    stickX: %f<br>\
-    stickY: %f<br>\
-    stickLength: %f<br>\
-    stickVelocity: %f<br>\
-    expectedX: %f<br>\
-    expectedY: %f<br>\
-    targetGyroVelocity: %f<br>\
-    gyroInStickStrength: %f<br>\
-    gyroStickX: %f<br>\
-    gyroStickY: %f", camera[0], camera[1], gyroVelocity[0], gyroVelocity[1],
-    stickX, stickY, stickLength, stickVelocity, expectedX, expectedY,
-    targetGyroVelocity, gyroInStickStrength, gyroStickX, gyroStickY);
   }
   
   return stickLength > undeadzoneInner;
@@ -908,6 +881,29 @@ bitoffset = 3
 control = checkbox
 default = 1
 item = Calibrate gyro on startup
+[Misc: Noise Floor Offset]
+shortdesc = Noise floor offset
+byteoffset = 51
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 0090
+minimum = 0000
+maximum = 0200
+step = 0001
+groupcol = true
+[Misc: Calibration Samples]
+shortdesc = Calibration samples
+byteoffset = 55
+bitsize = 16
+bitoffset = 0
+control = spinbox
+default = 01000
+minimum = 00100
+maximum = 10000
+step = 50
+group = true
 [Misc: Tightening threshold]
 shortdesc = Tightening threshold
 byteoffset = 42
@@ -954,14 +950,13 @@ item = Bluetooth PROTOCOL_WII
 
 [Info: Mouse vs Joystick?]
 shortdesc = <<<MULTILINE
-Gyro is functionally equivalent to mouse, and is best experienced when mapped to a mouse. However, I encountered some limitations with the TitanTwo and GPC, so things here are not ideal.
-Mouse mode does work pretty well when paired with a XIM, though- try it for yourself and see if it works for you.
+Gyro is functionally equivalent to mouse, and is best experienced when mapped to a mouse.
+Of course, you won't be able to use mouse mode on most console games, but mouse mode does work pretty well when paired with a XIM.
 
-Joystick out is emulating a joystick, but how this feels will vary from game to game. In fact, since gyro is basically a mouse, it will feel a lot like you're trying to map a mouse to the joystick!
-This code is not as comprehensive as XIM smart translators - so you may prefer to use mouse mode + XIM in one game, and the built in joystick emulation in other games.
+Joystick out is emulating a joystick, but how this feels will vary from game to game. In fact, since gyro is basically a mouse, it will feel a lot like you're trying to map a mouse to the joystick! This code is not as comprehensive as XIM smart translators, though.
 
 NOTE: the HID ouptut protocol still outputs the whole controller as a joystick, and the XIM does see it!
-Controller remaps will still take effect. Disable the right joystick to prevent double output.
+Controller remaps will still take effect. Disable the right joystick to prevent double output where it may occur.
 MULTILINE
 control = info
 
@@ -973,7 +968,7 @@ control = info
 
 [Info: Rotational stick aim]
 shortdesc = <<<MULTILINE
-Since flickstick on joystick output is severely compromised, I have implemented a component of flickstick: rotation. This keeps normal left/right stick aim, but allows for fine precision aim by pushing the stick forward and moving left or right. This allows you to keep using sensitivities that would otherwise be unusably high for a stick (which is a prerequisite for XIM). Normal left/right will allow for snappy turns, rotation for precision slow aim. Disables Y axis, so you'll want to map GYRO_OFF to something to re-orient yourself vertically.
+Since flickstick on joystick output is severely compromised, I have implemented a component of flickstick: rotation. This keeps normal left/right stick aim, but allows for fine precision aim by pushing the stick forward and moving left or right. This allows you to keep using sensitivities that would otherwise be too high for a stick (which is a prerequisite for XIM). Normal left/right will allow for snappy turns, rotation allows for precise slow aim. Disables Y axis, so you'll want to map GYRO_OFF to something to re-orient yourself vertically.
 MULTILINE
 control = info
 
@@ -1025,9 +1020,13 @@ control = info
 
 [Info: Misc]
 shortdesc = <<<MULTILINE
-Calibrate gyro on startup:
-Place the controller on a flat surface and do not move it until the LEDs change color.
-The script is averaging sensor data to filter out unwanted sensor noise; this helps fight drift.
+Calibrate gyro on startup: Place the controller on a flat surface and do not touch it until the LEDs stop flashing: they'll turns green when finished.
+The script is averaging sensor data to filter out unwanted sensor noise: this helps fight drift.
+NOTE! Steam controller will enter an idle mode after about 6 seconds. You may have to touch one of the pads to get calibration to continue. Do so very gently, so as to not accidentally add any movement during calibration.
+
+Noise floor offset: If you find that very slow movements are being deadzoned when they shouldn't be, raise this. If you find that your output is jittery even after calibration, lower this (or set to 0).
+
+Calibration samples: How many samples to collect during calibration. The controller's true polling rate will limit how fast samples are collected.
 
 Tightening squishes output towards zero below the threshold, used to help prevent jitter when trying to hold still at higher sensitivities.
 
@@ -1043,18 +1042,6 @@ Try values like 0.01 when trying to set a threshold that activates when moving a
 You can test where a threshold is by enabling acceleration with slow sensitivity 0, slow threshold 0, fast sensitivity 0.01. Then set fast threshold to the desired test number and see how fast you must move the controller to get a response.
 MULTILINE
 control = info
-
-[Mouse Suggested Setup]
-shortdesc = <<<MULTILINE
-Enable acceleration, set slow sensitivity to 5.00 and slow threshold to 0.01.
-Set fast sensitivity to your desired normal sensitivity, and fast threshold to 1 or 2.
-
-The limitation I encountered with GPC is that mouse_set does not support precise values, so there's effectively a deadzone that you will notice when trying to move very slowly.
-Acceleration set up in this way minimizes the issue. Try playing with different values in the same neighborhood, as well as tightening and smoothing. See what feels best to you.
-Joystick emulation doesn't have this limitation.
-MULTILINE
-control = info
-</cfgdesc>
 
 [Credits]
 shortdesc = <<<MULTILINE
