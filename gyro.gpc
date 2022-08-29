@@ -1,5 +1,6 @@
 #pragma METAINFO("Gyro Aim", 1, 0, "Aelius")
 
+
 /*
 
 END USER CUSTOMIZATION GUIDE - README
@@ -17,7 +18,6 @@ END USER CUSTOMIZATION GUIDE - README
 
 NOTES
 - The TitanTwo seems to map gyro data onto a range of 0.00-102.399994 rather than reporting angular velocity.
-
 - Beware math functions which may exceed fix32 range (check calls to pythag)
 
 TODO
@@ -47,7 +47,6 @@ optimize variables and memory usage
 #include <mouse.gph>
 #include <keyboard.gph>
 #define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
-#define MOUSE_ACCUMULATOR 5
 
 //Misc Globals
 uint32 offsetSamples;
@@ -57,11 +56,9 @@ fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
 fix32 calibratedGyro[2];
 fix32 gyroCalibration[2];
 fix32 accumulatedOffset[2];
-fix32 accumulatedMouse[2];
 fix32 camera[2];
 fix32 gyroStickX;
 fix32 gyroStickY;
-uint32 logDelay;
 
 int16 gX;
 int16 gY;
@@ -89,7 +86,6 @@ fix32 fastThreshold = 10.0;
 fix32 unpower = 0.0;
 fix32 virtualScale = 1.0;
 fix32 sensitivity = 1.0;
-fix32 offsetNF = 0.9;
 
 init {
   pmem_load();
@@ -121,7 +117,6 @@ init {
   pmem_read(30, &fastSensitivity);
   pmem_read(42, &tightThreshold);
   pmem_read(46, &smoothThreshold);
-  pmem_read(51, &offsetNF);
   
   switch (outProtocol) {
     case 1:  port_connect(PORT_USB_C, PROTOCOL_AUTO);   break;
@@ -243,39 +238,18 @@ int16 GetRaw(fix32 val) {
   return (int16)ceil(lerp(-32768f, 32767f, -((val + 100f) / 200f)));
 }
 
+fix32 diffX, diffY;
 void processMouse() {
-  fix32 mouseX, mouseY;
-  mouseSamples++;
-  accumulatedMouse[0] += camera[0];
-  accumulatedMouse[1] += camera[1];
-  //Accumulate some samples, helps prevent deadzone for small movements
-  if (mouseSamples >= MOUSE_ACCUMULATOR) {
-    mouseX = accumulatedMouse[0];
-    mouseY = accumulatedMouse[1];
-    mouseSamples = 0;
-    accumulatedMouse[0] = 0.0;
-    accumulatedMouse[1] = 0.0;
-  }
-  
-  //This must come AFTER the accumulator
-  if (offsetNF > 0.0) {
-    mouseX = sensorOffset(mouseX, offsetNF);
-    mouseY = sensorOffset(mouseY, offsetNF);
-  }
-  
-  //typecasting always rounds down; must round negatives up to prevent drift
-  mouseX = (mouseX < 0.0) ? ceil(mouseX) : mouseX;//must be before mouse_set!
-  mouseY = (mouseY < 0.0) ? ceil(mouseY) : mouseY;//must be before mouse_set!
-  mouse_set(MOUSE_X, (int32)mouseX);//Warning! Typecast behavior rounds down!
-  mouse_set(MOUSE_Y, (int32)mouseY);//Warning! Typecast behavior rounds down
+  fix32 mouseXint, mouseYint;
+  mouseXint = round(camera[0] + diffX);//add value lost from previous rounding
+  mouseYint = round(camera[1] + diffY);//then round to nearest int
+  diffX = (camera[0] + diffX) - mouseXint;//store diff lost to rounding
+  diffY = (camera[1] + diffY) - mouseYint;
+  diffX -= 0.01 * diffX;//offset accumulation of sensor noise
+  diffY -= 0.01 * diffY;
+  mouse_set(MOUSE_X, (int32)mouseXint);
+  mouse_set(MOUSE_Y, (int32)mouseYint);
 }
-
-fix32 sensorOffset(fix32 input, fix32 offset) {
-  //Noise floor offset, additional hack to prevent deadzone for small movements
-  input = (input > 0.0) ? input + offset : input - offset;
-  return input;
-}
-
 
 void GYRO_OFF() {
   calibratedGyro[1] = 0.0;
@@ -610,12 +584,6 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   expectedX += camera[0]*3.6; //the gyro readings top out at roughly 100.
   expectedY += camera[1]*3.6; //100 * 3.6 = 360.
   
-  //This might not be the right place, must examine with numbers
-  if (offsetNF > 0.0) {
-    expectedX = sensorOffset(expectedX, offsetNF);
-    expectedY = sensorOffset(expectedY, offsetNF);
-  }
-  
   fix32 targetGyroVelocity = pythag(expectedX/10.0, expectedY/10.0) * 10.0; //sq(expected) exceeds fix32 range, oops!
   
   // map gyro velocity to achievable range in 0-1
@@ -881,21 +849,9 @@ bitoffset = 3
 control = checkbox
 default = 1
 item = Calibrate gyro on startup
-[Misc: Noise Floor Offset]
-shortdesc = Noise floor offset
-byteoffset = 51
-bitsize = 32
-bitoffset = 0
-control = spinboxf
-decimals = 2
-default = 0090
-minimum = 0000
-maximum = 0200
-step = 0001
-groupcol = true
 [Misc: Calibration Samples]
 shortdesc = Calibration samples
-byteoffset = 55
+byteoffset = 51
 bitsize = 16
 bitoffset = 0
 control = spinbox
@@ -1023,8 +979,6 @@ shortdesc = <<<MULTILINE
 Calibrate gyro on startup: Place the controller on a flat surface and do not touch it until the LEDs stop flashing: they'll turns green when finished.
 The script is averaging sensor data to filter out unwanted sensor noise: this helps fight drift.
 NOTE! Steam controller will enter an idle mode after about 6 seconds. You may have to touch one of the pads to get calibration to continue. Do so very gently, so as to not accidentally add any movement during calibration.
-
-Noise floor offset: If you find that very slow movements are being deadzoned when they shouldn't be, raise this. If you find that your output is jittery even after calibration, lower this (or set to 0).
 
 Calibration samples: How many samples to collect during calibration. The controller's true polling rate will limit how fast samples are collected.
 
