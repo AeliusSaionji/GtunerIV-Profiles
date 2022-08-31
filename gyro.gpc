@@ -20,24 +20,27 @@ NOTES
 - Beware math functions which may exceed fix32 range (check calls to pythag)
 
 TODO
+add player lean player space
+add world space as an option
+kalman 1d?
+update threshold recommendations
+gyro off needs to be configurable
+add jsm config names for easy JSM learning
+remove accel bool, exchange for remembered settings in IC. false if 0 or whatever jsm does
 smoothing incurs high CPU
 does override outer work for virtualScale? It should.
 add report latency output, note that it's unused
 implement checks for calls that exceed data type (and definitely put the check in pythag)
 press start r2 r1 to start recalibrate combo
-remove accel bool, exchange for remembered settings IC thing, false if 0, whatever jsm does
-see if can leverage IC thing for user presets
-fix thresholds artificially to somewhat match JSM?
---update recommendations
+revisit globally dividing gyro vals by -25
+possibly leverage IC config memory for user presets
 xim specific axis fix?
 fix left stick output (hold)
-add jsm config names for visibility
 user configurable smoothing buffer size in IC?
 flickstick mouse
 flickstick joystick?
-winding flickstick seems like a good idea
-player space gyro
-implement on demand calibrate? or just tell user to reload script
+revisit winding flickstick
+--add haptic bump when leaving 0/deadzone
 on demand adjust of sens/speed/smooth/etc? and pmem_save
 optimize variables and memory usage
 
@@ -52,10 +55,11 @@ optimize variables and memory usage
 uint32 offsetSamples;
 uint32 counter = 0;
 uint32 mouseSamples;
-fix32 gyroVelocity[2]; //0 is Yaw (Z), 1 is Pitch (X)
-fix32 calibratedGyro[2];
-fix32 gyroCalibration[2];
-fix32 accumulatedOffset[2];
+fix32 gyroVelocity[3];//0 is Yaw (Z), 1 is Pitch (X), 2 is roll (Y)
+fix32 accelGrav[3];// Using order Z X Y again
+fix32 calibratedGyro[3];
+fix32 gyroCalibration[3];
+fix32 accumulatedOffset[3];
 fix32 camera[2];
 fix32 gyroStickX;
 fix32 gyroStickY;
@@ -76,6 +80,7 @@ bool outerStickOverride = TRUE;
 bool stickDisable = FALSE;
 bool logging = TRUE;
 bool deadZoneFinder = FALSE;
+char GYRO_SPACE = 'PLAYER_TURN';
 fix32 undeadzoneInner = 0.0;
 fix32 undeadzoneOuter = 0.0;
 fix32 maxStickGameSpeed = 360.0;
@@ -88,13 +93,14 @@ fix32 fastThreshold = 10.0;
 fix32 unpower = 0.0;
 fix32 virtualScale = 1.0;
 fix32 sensitivity = 1.0;
+fix32 mouseCalibration = 1.0;
 
 init {
   pmem_load();
   
   //ints
   stickEmulation     = pmem_read(0);
-  stickEmulation = 1;//DEBUG
+  stickEmulation = 0;//DEBUG
   outProtocol        = pmem_read(50);
   
   //bools
@@ -103,12 +109,13 @@ init {
   outerStickOverride = (pmem_read(25)>>1) & 0b1;
   outerStickOverride = TRUE;//DEBUG
   enableAccel        = (pmem_read(25)>>2) & 0b1;
+  enableAccel = TRUE;//DEBUG
   calibrating        = (pmem_read(25)>>3) & 0b1;
   //flickstick       = (pmem_read(25)>>3) & 0b1;
   stickDisable       = (pmem_read(25)>>5) & 0b1;
   //fix32s & int16s
   pmem_read(51, &calibrationCounter);
-  calibrationCounter = 100;//DEBUG
+  calibrationCounter = 1000;//DEBUG
   pmem_read(17, &undeadzoneInner);
   pmem_read(21, &undeadzoneOuter);
   undeadzoneInner = 26.0;//DEBUG
@@ -126,10 +133,16 @@ init {
   pmem_read(38, &fastThreshold);
   pmem_read(26, &slowSensitivity);
   pmem_read(30, &fastSensitivity);
+  slowThreshold = 500.0;//DEBUG
+  fastThreshold = 501.0;
+  slowSensitivity = 0.0;
+  fastSensitivity = 1.0;
   pmem_read(42, &tightThreshold);
-  tightThreshold = 0.0;//DEBUG
   pmem_read(46, &smoothThreshold);
-  smoothThreshold = 0.0;//DEBUG
+  slowThreshold /= 25.0;//divide thresholds by a guestimated number,
+  fastThreshold /= 25.0;//such that they correspond to angular velocity
+  tightThreshold /= 25.0;//(using same number as accel normalized to grav)
+  smoothThreshold /= 25.0;
   
   switch (outProtocol) {
     case 1:  port_connect(PORT_USB_C, PROTOCOL_AUTO);   break;
@@ -183,10 +196,16 @@ main {
       }
       reportLatency++;//ms since last unique measurement, native Hz = 1/ms
     }
-    gyroVelocity[0] = get_actual(GYRO_1_Z)*20.0;//On first blush, *20 seems close to true velocity
-    gyroVelocity[1] = get_actual(GYRO_1_X)*20.0;
-    //gyroVelocity[0] = (fix32)gZ/-15.0;//On first blush, divide by 15 seems close to degrees/s.
-    //gyroVelocity[1] = (fix32)gX/-15.0;//
+    accelGrav[0] = get_actual(ACCEL_1_Z)/-25.0;//Normalize gravity to 1
+    accelGrav[1] = get_actual(ACCEL_1_X)/-25.0;//Sign from titan seem incorrect?
+    accelGrav[2] = get_actual(ACCEL_1_Y)/-25.0;
+    gyroVelocity[0] = get_actual(GYRO_1_Z);
+    gyroVelocity[1] = get_actual(GYRO_1_X);
+    gyroVelocity[2] = get_actual(GYRO_1_Y);
+    //gyroVelocity[0] = (fix32)gZ/-25.0;//On first blush, divide by 25 seems close to degrees/s.
+    //gyroVelocity[1] = (fix32)gX/-25.0;//That would make sense, because 
+    //gyroVelocity[2] = (fix32)gY/-25.0;//it would be in line with accel
+
     //Process input on regular intervals regardless of dupes
     if (!calibrating) { processInput(1); }//to avoid waiting around when polling rate is low
     if (stickEmulation == 1) {//Right stick
@@ -236,7 +255,7 @@ main {
   
   if (stickEmulation == 0) {//mouse
     //fix32 mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
-    processMouse();
+    processMouse(camera[0], camera[1]);
     //Controller is still passed as a joystick in HID output, it may be active
     if (stickDisable) {
       set_val(STICK_1_X, 0.0);//disable right joystick
@@ -254,12 +273,14 @@ int16 GetRaw(fix32 val) {
 }
 
 fix32 diffX, diffY;
-void processMouse() {
+void processMouse(fix32 x, fix32 y) {
   fix32 mouseXint, mouseYint;
-  mouseXint = round(camera[0] + diffX);//add value lost from previous rounding
-  mouseYint = round(camera[1] + diffY);//then round to nearest int
-  diffX = (camera[0] + diffX) - mouseXint;//store diff lost to rounding
-  diffY = (camera[1] + diffY) - mouseYint;
+  x /= mouseCalibration;
+  y /= mouseCalibration;
+  mouseXint = round(x + diffX);//add value lost from previous rounding
+  mouseYint = round(y + diffY);//then round to nearest int
+  diffX = (x + diffX) - mouseXint;//store diff lost to rounding
+  diffY = (y + diffY) - mouseYint;
   diffX -= 0.01 * diffX;//offset accumulation of sensor noise
   diffY -= 0.01 * diffY;
   mouse_set(MOUSE_X, (int32)mouseXint);
@@ -301,7 +322,7 @@ bool GYRO_OFF() {
   if (is_active(STICK_1_X) || is_active(STICK_1_Y)) {
     return FALSE;
   } 
-  return TRUE;
+  return FALSE;
 }
 
 void processInput(uint32 deltaTime) {
@@ -310,6 +331,7 @@ void processInput(uint32 deltaTime) {
     offsetSamples++;
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
+    accumulatedOffset[2] += gyroVelocity[2];
     if (!led_vmget(LED_3) == -1) { led_vmset(LED_3, 250, 250, -1); }
     const uint8 disp[] = { _0_, _1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, _G_};
     fix32 dispf = round((fix32)counter/(fix32)calibrationCounter*10.0);
@@ -324,8 +346,11 @@ void processInput(uint32 deltaTime) {
   
   gyroCalibration[0] = getCalibrationOffset(0);
   gyroCalibration[1] = getCalibrationOffset(1);
+  gyroCalibration[2] = getCalibrationOffset(2);
   calibratedGyro[0] = (gyroVelocity[0] - gyroCalibration[0]);
   calibratedGyro[1] = (gyroVelocity[1] - gyroCalibration[1]);
+  calibratedGyro[2] = (gyroVelocity[2] - gyroCalibration[2]);
+  
   
   //smoothing (from wiki)
   if (smoothThreshold > 0.0) {
@@ -345,16 +370,69 @@ void processInput(uint32 deltaTime) {
   
   //accelerating
   if (enableAccel) {
-    processGyroAccel(calibratedGyro[0], calibratedGyro[1], deltaTime, slowSensitivity, fastSensitivity, slowThreshold, fastThreshold);
+    processGyroAccel(calibratedGyro[0], calibratedGyro[1], calibratedGyro[2],
+    accelGrav[0], accelGrav[1], accelGrav[2], deltaTime,
+    slowSensitivity, fastSensitivity, slowThreshold, fastThreshold);
   } else {
-    processGyroInput(calibratedGyro[0], calibratedGyro[1], deltaTime, sensitivity);
+    processGyroInput(calibratedGyro[0], calibratedGyro[1], calibratedGyro[2],
+    accelGrav[0], accelGrav[1], accelGrav[2], deltaTime, sensitivity);
   }
 }
 
-void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, uint32 deltaTime, fix32 gyroSensitivity) {
-  camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
-  camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
+void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, fix32 calibratedGyro2,
+fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, uint32 deltaTime, fix32 gyroSensitivity) {
+  //Local space gyro
+  if (GYRO_SPACE == 'LOCAL') {
+    camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
+    camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
+  }
+  //player space gyro, from blog
+  // gyro: 012 == z x y == yaw pitch roll
+  // accel: 012 == z x y == ???
+  if (GYRO_SPACE == 'PLAYER_TURN') {
+    // use world yaw for yaw direction, local combined yaw for magnitude
+    //clamp accel?
+    fix32 worldYaw = calibratedGyro2 * accelGrav2 + calibratedGyro0 * accelGrav0; // dot product but just yaw and roll
+    fix32 worldYawSign = worldYaw < 0.0 ? -1.0 : 1.0;
+    fix32 yawRelaxFactor = 2.0;
+    camera[0] = worldYawSign
+    * min(abs(worldYaw) * yawRelaxFactor, pythag(calibratedGyro2, calibratedGyro0))
+    * gyroSensitivity * (fix32)deltaTime;
+    // player space still uses local pitch:
+    camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
+    logger2(accelGrav0, pythag(calibratedGyro2, calibratedGyro0),accelGrav2);
+  }
+  
   if (GYRO_OFF()) { camera[0] = 0.0; camera[1] = 0.0; }
+}
+
+//accel
+void processGyroAccel(fix32 calibratedGyro0, fix32 calibratedGyro1, fix32 calibratedGyro2,
+fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, uint32 deltaTime,
+fix32 sensitivitySlow, fix32 sensitivityFast, fix32 slowThreshold, fix32 fastThreshold) {
+  // apply calibration factor
+  // get input velocity
+  fix32 magnitude = pythag(calibratedGyro0, calibratedGyro1);
+  // calculate position on slowThreshold to fastThreshold scale
+  magnitude -= slowThreshold;
+  if (magnitude < 0.0) {
+    magnitude = 0.0;
+  }
+  fix32 denom = fastThreshold - slowThreshold;
+  fix32 newSensitivity;
+  if (denom <= 0.0) {
+    newSensitivity = magnitude > 0.0 ? 1.0 : 0.0; // if min threshold overlaps max threshold, pop up to
+    // max lowSens as soon as we're above min threshold
+  } else {
+    newSensitivity = magnitude / denom;
+  }
+  if (newSensitivity > 1.0) {
+    newSensitivity = 1.0;
+  }
+  // interpolate between low sensitivity and high sensitivity
+  newSensitivity = lerp(sensitivitySlow, sensitivityFast, newSensitivity);
+  processGyroInput(calibratedGyro0, calibratedGyro1, calibratedGyro2,
+  accelGrav0, accelGrav1, accelGrav2, deltaTime, newSensitivity);
 }
 
 fix32 getCalibrationOffset(int32 n) {
@@ -363,8 +441,10 @@ fix32 getCalibrationOffset(int32 n) {
   }
   if (n==0) {
     return accumulatedOffset[0] / (fix32)offsetSamples;
-  } //flow dictates next line is technically else if
-  return accumulatedOffset[1] / (fix32)offsetSamples;
+  } else if (n==1) {
+    return accumulatedOffset[1] / (fix32)offsetSamples;
+  }//flow dictates next line is technically else if
+  return accumulatedOffset[2] / (fix32)offsetSamples;
 }
 
 void resetCalibration() {
@@ -538,35 +618,6 @@ fix32 getTightenedInput1(fix32 input0, fix32 input1, fix32 threshold) {
     return input1 * inputScale;
   }
   return input1;
-}
-
-//accel
-void processGyroAccel(fix32 calibratedGyro0, fix32 calibratedGyro1,
-uint32 deltaTime, fix32 sensitivitySlow, fix32 sensitivityFast,
-fix32 slowThreshold, fix32 fastThreshold) {
-  // apply calibration factor
-  // get input velocity
-  fix32 magnitude = pythag(calibratedGyro0, calibratedGyro1);
-  // calculate position on slowThreshold to fastThreshold scale
-  magnitude -= slowThreshold;
-  if (magnitude < 0.0) {
-    magnitude = 0.0;
-  }
-  fix32 denom = fastThreshold - slowThreshold;
-  fix32 newSensitivity;
-  if (denom <= 0.0) {
-    newSensitivity = magnitude > 0.0 ? 1.0 : 0.0; // if min threshold overlaps max threshold, pop up to
-    // max lowSens as soon as we're above min threshold
-  } else {
-    newSensitivity = magnitude / denom;
-  }
-  if (newSensitivity > 1.0) {
-    newSensitivity = 1.0;
-  }
-  // interpolate between low sensitivity and high sensitivity
-  newSensitivity = lerp(sensitivitySlow, sensitivityFast, newSensitivity);
-  camera[0] = calibratedGyro0 * newSensitivity * (fix32)deltaTime;
-  camera[1] = calibratedGyro1 * newSensitivity * (fix32)deltaTime;
 }
 
 fix32 pythag(fix32 a, fix32 b) {
