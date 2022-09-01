@@ -1,4 +1,4 @@
-#pragma METAINFO("Gyro Aim", 1, 0, "Aelius")
+#pragma METAINFO("uJSM.gpc", 1, 0, "Aelius")
 
 /*
 
@@ -23,12 +23,14 @@ TODO
 add player lean player space
 add world space as an option
 kalman 1d?
-update threshold recommendations
-gyro off needs to be configurable
+do the various sens functions still take accel into account?
+note about gyro_sens overriding accel in IC
+read out 'gyro' to seg disp
+add a config.h to include
+--gyro off needs to be configurable
 add jsm config names for easy JSM learning
-remove accel bool, exchange for remembered settings in IC. false if 0 or whatever jsm does
 smoothing incurs high CPU
-does override outer work for virtualScale? It should.
+does override outer work for virtual_scale? It should.
 add report latency output, note that it's unused
 implement checks for calls that exceed data type (and definitely put the check in pythag)
 press start r2 r1 to start recalibrate combo
@@ -42,7 +44,9 @@ flickstick joystick?
 revisit winding flickstick
 --add haptic bump when leaving 0/deadzone
 on demand adjust of sens/speed/smooth/etc? and pmem_save
+per stick settings as per jsm
 optimize variables and memory usage
+scrub delta time outta here
 
 */
 
@@ -71,78 +75,75 @@ int16 gY;
 int16 gZ;
 
 //Settings
-uint8 stickEmulation = 0; //0 for mouse output, 1 for right stick, 2 for left stick
+uint8 gyro_output = 0; //0 for mouse output, 1 for right stick, 2 for left stick
 uint8 outProtocol = 0;
 uint16 calibrationCounter = 1000;
-bool enableAccel = FALSE;
 bool calibrating = TRUE;
 bool outerStickOverride = TRUE;
 bool stickDisable = FALSE;
-bool logging = TRUE;
-bool deadZoneFinder = FALSE;
-char GYRO_SPACE = 'PLAYER_TURN';
-fix32 undeadzoneInner = 0.0;
-fix32 undeadzoneOuter = 0.0;
+bool isLeft = FALSE;
+bool logging = TRUE;//DEBUG
+char gyro_space = 'PLAYER_TURN';
+fix32 undeadzone_inner = 0.0;
+fix32 undeadzone_outer = 0.0;
 fix32 maxStickGameSpeed = 360.0;
-fix32 smoothThreshold = 0.0;
-fix32 tightThreshold = 0.0;
-fix32 slowSensitivity = 1.0;
-fix32 fastSensitivity = 5.0;
-fix32 slowThreshold = 1.0;
-fix32 fastThreshold = 10.0;
+fix32 gyro_smooth_threshold = 0.0;
+fix32 gyro_tight_threshold = 0.0;
+fix32 min_gyro_sens = 1.0;
+fix32 max_gyro_sens = 1.0;
+fix32 gyro_sens = 1.0;
+fix32 min_gyro_threshold = 20.0;
+fix32 max_gyro_threshold = 800.0;
 fix32 unpower = 0.0;
-fix32 virtualScale = 1.0;
-fix32 sensitivity = 1.0;
+fix32 virtual_scale = 1.0;
 fix32 mouseCalibration = 1.0;
+//mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
+
 
 init {
   pmem_load();
   
   //ints
-  stickEmulation     = pmem_read(0);
-  stickEmulation = 0;//DEBUG
+  gyro_output     = pmem_read(0);
+  gyro_output = 0;//DEBUG
   outProtocol        = pmem_read(50);
   
   //bools
-  deadZoneFinder     = (pmem_read(25))    & 0b1;
-  deadZoneFinder = FALSE;//DEBUG
   outerStickOverride = (pmem_read(25)>>1) & 0b1;
   outerStickOverride = TRUE;//DEBUG
-  enableAccel        = (pmem_read(25)>>2) & 0b1;
-  enableAccel = TRUE;//DEBUG
   calibrating        = (pmem_read(25)>>3) & 0b1;
   //flickstick       = (pmem_read(25)>>3) & 0b1;
   stickDisable       = (pmem_read(25)>>5) & 0b1;
   //fix32s & int16s
   pmem_read(51, &calibrationCounter);
   calibrationCounter = 1000;//DEBUG
-  pmem_read(17, &undeadzoneInner);
-  pmem_read(21, &undeadzoneOuter);
-  undeadzoneInner = 26.0;//DEBUG
-  undeadzoneOuter = 8.0;//DEBUG
-  undeadzoneInner /= 100.0;//0-1 scale
-  undeadzoneOuter /= 100.0;
-  pmem_read(1,  &sensitivity);
-  sensitivity = 1.0;//DEBUG
-  pmem_read(5,  &virtualScale);
-  virtualScale = 1.5;//DEBUG
+  pmem_read(17, &undeadzone_inner);
+  pmem_read(21, &undeadzone_outer);
+  undeadzone_inner = 0.26;//DEBUG
+  undeadzone_outer = 0.08;//DEBUG
+  pmem_read(5,  &virtual_scale);
+  virtual_scale = 1.5;//DEBUG
   pmem_read(13, &unpower);
   pmem_read(9,  &maxStickGameSpeed);
   maxStickGameSpeed = 720.0;//DEBUG
-  pmem_read(34, &slowThreshold);
-  pmem_read(38, &fastThreshold);
-  pmem_read(26, &slowSensitivity);
-  pmem_read(30, &fastSensitivity);
-  slowThreshold = 500.0;//DEBUG
-  fastThreshold = 501.0;
-  slowSensitivity = 0.0;
-  fastSensitivity = 1.0;
-  pmem_read(42, &tightThreshold);
-  pmem_read(46, &smoothThreshold);
-  slowThreshold /= 25.0;//divide thresholds by a guestimated number,
-  fastThreshold /= 25.0;//such that they correspond to angular velocity
-  tightThreshold /= 25.0;//(using same number as accel normalized to grav)
-  smoothThreshold /= 25.0;
+  pmem_read(34, &min_gyro_threshold);
+  pmem_read(38, &max_gyro_threshold);
+  pmem_read(26, &min_gyro_sens);
+  pmem_read(30, &max_gyro_sens);
+  pmem_read(1,  &gyro_sens);
+  gyro_sens = 1.0;//DEBUG
+  min_gyro_threshold = 20.0;
+  max_gyro_threshold = 800.0;
+  min_gyro_sens = 0.5;
+  max_gyro_sens = 2.0;
+  //As per JSM, setting GYRO_SENS overrides min/max (accel)
+  if (gyro_sens > 0.0) { min_gyro_sens = max_gyro_sens = gyro_sens; }
+  pmem_read(42, &gyro_tight_threshold);
+  pmem_read(46, &gyro_smooth_threshold);
+  min_gyro_threshold /= 25.0;//divide thresholds by a guestimated number,
+  max_gyro_threshold /= 25.0;//such that they correspond to angular velocity
+  gyro_tight_threshold /= 25.0;//(using same number as accel normalized to grav)
+  gyro_smooth_threshold /= 25.0;
   
   switch (outProtocol) {
     case 1:  port_connect(PORT_USB_C, PROTOCOL_AUTO);   break;
@@ -161,18 +162,20 @@ init {
 }
 
 main {
-  //temp binds for testing
-  if (is_active(BUTTON_4)) {
-    mouse_set(MBUTTON_1, TRUE);
-  } else if (is_release(BUTTON_4)) {
-    mouse_set(MBUTTON_1, FALSE);
-  }
-  if (is_active(BUTTON_5)) {
-    key_set(KEY_SPACEBAR, TRUE);
-  } else if (is_release(BUTTON_5)) {
-    key_set(KEY_SPACEBAR, FALSE);
-  }
   
+  if (FALSE) {
+    //temp binds for testing
+    if (is_active(BUTTON_4)) {
+      mouse_set(MBUTTON_1, TRUE);
+    } else if (is_release(BUTTON_4)) {
+      mouse_set(MBUTTON_1, FALSE);
+    }
+    if (is_active(BUTTON_5)) {
+      key_set(KEY_SPACEBAR, TRUE);
+    } else if (is_release(BUTTON_5)) {
+      key_set(KEY_SPACEBAR, FALSE);
+    }
+  }
   
   static uint32 deltaTime;
   deltaTime += elapsed_time();
@@ -205,17 +208,17 @@ main {
     //gyroVelocity[0] = (fix32)gZ/-25.0;//On first blush, divide by 25 seems close to degrees/s.
     //gyroVelocity[1] = (fix32)gX/-25.0;//That would make sense, because 
     //gyroVelocity[2] = (fix32)gY/-25.0;//it would be in line with accel
-
+    
     //Process input on regular intervals regardless of dupes
     if (!calibrating) { processInput(1); }//to avoid waiting around when polling rate is low
-    if (stickEmulation == 1) {//Right stick
+    if (gyro_output == 1) {//Right stick
       
       if (winding) { flickRotate(); }
       
       //Logic from JSM operates on a scale of 0-1
       if (processGyroStick(get_val(STICK_1_X)/100.0, get_val(STICK_1_Y)/100.0)) {} //returns a bool//DEBUG
     }
-    if (stickEmulation == 2) {//Left stick
+    if (gyro_output == 2) {//Left stick
       //Logic from JSM operates on a scale of 0-1
       if (processGyroStick(get_val(STICK_2_X)/100.0, get_val(STICK_2_Y)/100.0)) {} //returns a bool//DEBUG
     }
@@ -225,14 +228,14 @@ main {
   //set_val must be outside the polling loop!
   //lest values bounce back to 0 every cycle
   
-  if  (stickEmulation) {
-    if (deadZoneFinder == TRUE) {
+  if  (gyro_output) {
+    if (gyro_sens == 0.0 && gyro_output == 1) {
       // hack to help with finding deadzones more quickly
-      set_val(STICK_1_X, undeadzoneInner * 100.0);
-    } else if (stickEmulation == 1) {
+      set_val(STICK_1_X, undeadzone_inner * 100.0);
+    } else if (gyro_output == 1) {
       set_val(STICK_1_X, gyroStickX * 100.0);
       set_val(STICK_1_Y, gyroStickY * 100.0);
-    } else if (stickEmulation == 2) {
+    } else if (gyro_output == 2) {
       set_val(STICK_2_X, gyroStickX * 100.0);
       set_val(STICK_2_Y, gyroStickY * 100.0);
     }
@@ -242,27 +245,26 @@ main {
     //but stick now has access to game's accel for snappy stick turning
     if (outerStickOverride == TRUE && winding == FALSE) {
       if (get_actual(STICK_1_X) >= 95.0) {
-        set_val(STICK_1_X, (gyroStickX + undeadzoneOuter) * 100.0);
+        set_val(STICK_1_X, (gyroStickX + undeadzone_outer) * 100.0);
       } else if (get_actual(STICK_1_X) <= -95.0) {
-        set_val(STICK_1_X, (gyroStickX - undeadzoneOuter) * 100.0);
+        set_val(STICK_1_X, (gyroStickX - undeadzone_outer) * 100.0);
       } else if (get_actual(STICK_1_Y) >= 95.0) {
-        set_val(STICK_1_Y, (gyroStickY + undeadzoneOuter) * 100.0);
+        set_val(STICK_1_Y, (gyroStickY + undeadzone_outer) * 100.0);
       } else if (get_actual(STICK_1_Y) <= -95.0) {
-        set_val(STICK_1_Y, (gyroStickY - undeadzoneOuter) * 100.0);
+        set_val(STICK_1_Y, (gyroStickY - undeadzone_outer) * 100.0);
       }
     } else if (outerStickOverride == TRUE && winding == TRUE) { flickRotate2(); }
   }
   
-  if (stickEmulation == 0) {//mouse
-    //fix32 mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
+  if (gyro_output == 0) {//mouse
     processMouse(camera[0], camera[1]);
     //Controller is still passed as a joystick in HID output, it may be active
     if (stickDisable) {
       set_val(STICK_1_X, 0.0);//disable right joystick
       set_val(STICK_1_Y, 0.0);
-    } else if (virtualScale != 1.0) {//Apply virtualScale aka stickSensitivity
-      set_val(STICK_1_X, get_actual(STICK_1_X) * virtualScale);
-      set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtualScale);
+    } else if (virtual_scale != 1.0) {//Apply virtual_scale aka stickSensitivity
+      set_val(STICK_1_X, get_actual(STICK_1_X) * virtual_scale);
+      set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtual_scale);
     }
   }
 }
@@ -309,12 +311,12 @@ void flickRotate2() {
   //currently just breaks outder deadzone
   fix32 x = get_val(STICK_1_X);
   fix32 y = get_val(STICK_1_Y);
-  fix32 undeadzoneOuterNew = undeadzoneOuter * 100.0;
-  if (x >= 98.0 - undeadzoneOuterNew) {
-    set_val(STICK_1_X, x + undeadzoneOuterNew);
+  fix32 undeadzone_outerNew = undeadzone_outer * 100.0;
+  if (x >= 98.0 - undeadzone_outerNew) {
+    set_val(STICK_1_X, x + undeadzone_outerNew);
   }
-  if (x <= -98.0 + undeadzoneOuterNew) {
-    set_val(STICK_1_X, x - undeadzoneOuterNew);
+  if (x <= -98.0 + undeadzone_outerNew) {
+    set_val(STICK_1_X, x - undeadzone_outerNew);
   }
 }
 
@@ -353,9 +355,9 @@ void processInput(uint32 deltaTime) {
   
   
   //smoothing (from wiki)
-  if (smoothThreshold > 0.0) {
-    calibratedGyro[0] = getTieredSmoothedInput0(calibratedGyro[0], calibratedGyro[1], smoothThreshold/2.0, smoothThreshold);
-    calibratedGyro[1] = getTieredSmoothedInput1(calibratedGyro[0], calibratedGyro[1], smoothThreshold/2.0, smoothThreshold);
+  if (gyro_smooth_threshold > 0.0) {
+    calibratedGyro[0] = getTieredSmoothedInput0(calibratedGyro[0], calibratedGyro[1], gyro_smooth_threshold/2.0, gyro_smooth_threshold);
+    calibratedGyro[1] = getTieredSmoothedInput1(calibratedGyro[0], calibratedGyro[1], gyro_smooth_threshold/2.0, gyro_smooth_threshold);
   }
   
   //cutoff/recovery... and maybe the jsm smoothing
@@ -363,35 +365,34 @@ void processInput(uint32 deltaTime) {
   //calibratedGyro[1] = smoothJSM1(calibratedGyro[0], calibratedGyro[1], 0.0, 0.000001);
   
   //tightening
-  if (tightThreshold > 0.0) {
-    calibratedGyro[0] = getTightenedInput0(calibratedGyro[0], calibratedGyro[1], tightThreshold);
-    calibratedGyro[1] = getTightenedInput1(calibratedGyro[0], calibratedGyro[1], tightThreshold);
+  if (gyro_tight_threshold > 0.0) {
+    calibratedGyro[0] = getTightenedInput0(calibratedGyro[0], calibratedGyro[1], gyro_tight_threshold);
+    calibratedGyro[1] = getTightenedInput1(calibratedGyro[0], calibratedGyro[1], gyro_tight_threshold);
   }
   
   //accelerating
-  if (enableAccel) {
+  if (min_gyro_sens != max_gyro_sens) {
     processGyroAccel(calibratedGyro[0], calibratedGyro[1], calibratedGyro[2],
     accelGrav[0], accelGrav[1], accelGrav[2], deltaTime,
-    slowSensitivity, fastSensitivity, slowThreshold, fastThreshold);
+    min_gyro_sens, max_gyro_sens, min_gyro_threshold, max_gyro_threshold);
   } else {
     processGyroInput(calibratedGyro[0], calibratedGyro[1], calibratedGyro[2],
-    accelGrav[0], accelGrav[1], accelGrav[2], deltaTime, sensitivity);
+    accelGrav[0], accelGrav[1], accelGrav[2], deltaTime, gyro_sens);
   }
 }
 
 void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, fix32 calibratedGyro2,
 fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, uint32 deltaTime, fix32 gyroSensitivity) {
   //Local space gyro
-  if (GYRO_SPACE == 'LOCAL') {
+  if (gyro_space == 'LOCAL') {
     camera[0] = calibratedGyro0 * gyroSensitivity * (fix32)deltaTime;
     camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
   }
-  //player space gyro, from blog
+  //player turn player space gyro, from jsm
   // gyro: 012 == z x y == yaw pitch roll
   // accel: 012 == z x y == ???
-  if (GYRO_SPACE == 'PLAYER_TURN') {
+  if (gyro_space == 'PLAYER_TURN') {
     // use world yaw for yaw direction, local combined yaw for magnitude
-    //clamp accel?
     fix32 worldYaw = calibratedGyro2 * accelGrav2 + calibratedGyro0 * accelGrav0; // dot product but just yaw and roll
     fix32 worldYawSign = worldYaw < 0.0 ? -1.0 : 1.0;
     fix32 yawRelaxFactor = 2.0;
@@ -400,7 +401,6 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, uint32 deltaTime, fix32 gy
     * gyroSensitivity * (fix32)deltaTime;
     // player space still uses local pitch:
     camera[1] = calibratedGyro1 * gyroSensitivity * (fix32)deltaTime;
-    logger2(accelGrav0, pythag(calibratedGyro2, calibratedGyro0),accelGrav2);
   }
   
   if (GYRO_OFF()) { camera[0] = 0.0; camera[1] = 0.0; }
@@ -409,16 +409,16 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, uint32 deltaTime, fix32 gy
 //accel
 void processGyroAccel(fix32 calibratedGyro0, fix32 calibratedGyro1, fix32 calibratedGyro2,
 fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, uint32 deltaTime,
-fix32 sensitivitySlow, fix32 sensitivityFast, fix32 slowThreshold, fix32 fastThreshold) {
+fix32 minGyroSens, fix32 maxGyroSens, fix32 minGyroThreshold, fix32 maxGyroThreshold) {
   // apply calibration factor
   // get input velocity
   fix32 magnitude = pythag(calibratedGyro0, calibratedGyro1);
-  // calculate position on slowThreshold to fastThreshold scale
-  magnitude -= slowThreshold;
+  // calculate position on min_gyro_threshold to max_gyro_threshold scale
+  magnitude -= minGyroThreshold;
   if (magnitude < 0.0) {
     magnitude = 0.0;
   }
-  fix32 denom = fastThreshold - slowThreshold;
+  fix32 denom = maxGyroThreshold - minGyroThreshold;
   fix32 newSensitivity;
   if (denom <= 0.0) {
     newSensitivity = magnitude > 0.0 ? 1.0 : 0.0; // if min threshold overlaps max threshold, pop up to
@@ -430,7 +430,7 @@ fix32 sensitivitySlow, fix32 sensitivityFast, fix32 slowThreshold, fix32 fastThr
     newSensitivity = 1.0;
   }
   // interpolate between low sensitivity and high sensitivity
-  newSensitivity = lerp(sensitivitySlow, sensitivityFast, newSensitivity);
+  newSensitivity = lerp(minGyroSens, maxGyroSens, newSensitivity);
   processGyroInput(calibratedGyro0, calibratedGyro1, calibratedGyro2,
   accelGrav0, accelGrav1, accelGrav2, deltaTime, newSensitivity);
 }
@@ -647,14 +647,14 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   //GPC has all axis represented in -100 to 100
   //This is not the case with JSM
   fix32 stickLength = pythag(stickX, stickY);
-  fix32 livezoneSize = 1.0 - undeadzoneOuter - undeadzoneInner;
+  fix32 livezoneSize = 1.0 - undeadzone_outer - undeadzone_inner;
   //in order to correctly combine gyro and stick, we need to calculate what the stick
   //aiming is supposed to be doing, add gyro result to it, and convert back to stick
   if (unpower == 0.0) {
     unpower = 1.0;
   }
   
-  fix32 stickVelocity = pow(clamp((stickLength - undeadzoneInner) / livezoneSize, 0.0, 1.0), unpower) * maxStickGameSpeed * virtualScale;
+  fix32 stickVelocity = pow(clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower) * maxStickGameSpeed * virtual_scale;
   fix32 expectedX = 0.0;
   fix32 expectedY = 0.0;
   gyroStickX = 0.0;
@@ -682,7 +682,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   
   // remap to between inner and outer deadzones
   if (gyroInStickStrength > 0.010) {
-    gyroInStickStrength = undeadzoneInner + gyroInStickStrength * livezoneSize;
+    gyroInStickStrength = undeadzone_inner + gyroInStickStrength * livezoneSize;
     gyroStickX = (expectedX / targetGyroVelocity) * gyroInStickStrength;
     gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
   }
@@ -690,7 +690,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   logger(camera[0], camera[1], stickX, stickY, stickLength, stickVelocity, expectedX,
   expectedY, targetGyroVelocity, gyroInStickStrength, gyroStickX, gyroStickY);
   
-  return stickLength > undeadzoneInner;
+  return stickLength > undeadzone_inner;
 }
 
 /* void processRotational() {
@@ -773,28 +773,41 @@ void logger2(fix32 input1, fix32 input2, fix32 input3) {
     }
   }
 }
-/* ic cfg
+/* Interactive Config
+I make use of empty [sections] to be heading titles in the GUI.
+Then I group [detailed-config-name] elements under those empty sections.
+This allows me to have nice GUI titles, while also allowing for accurate
+and readable config names in ICBytable.
+
 <shortdesc>
-Use your controller's gyro to aim! Supports outputting as mouse or joystick. Supports flickstick when in mouse mode. See interactive config for help.
+Use your controller's gyro to aim! Supports outputting as mouse or joystick. See interactive config for help.
 </shortdesc>
 
 <keywords>
-gyro mouse flickstick
+gyro mouse flickstick jsm joyshockmapper dualsense steamcontroller dualshock ds4 joycon motion
 </keywords>
 
 <cfgdesc>
-
+[Presets]
+shortdesc =
+control = config
+item        = Steam Controller:#19:08#33:00FA
+item        = Deadzone Finder:0100000000#19:000000000000000000#3D:00190000
+item        = Acceleration Example:#01:00000000#1A:00008000000200000014000003200000
+item        = Threshold Testing Example (Motion only above 500 degrees per second):#01:00000000#1A:000000000001000001F4000001F50000
+item        = User Preset 1:
+item        = User Preset 2:
 [Layout]
-shortdesc = Gyro Assignment
+shortdesc = GYRO_OUTPUT
 byteoffset = 0
 bitsize = 8
 bitoffset = 0
 control = radiobox
 default = 0
-item = Gyro controls mouse
-item = Gyro controls right joystick
-item = Gyro controls left joystick (incomplete)
-[Layout Flickstick]
+item = MOUSE
+item = RIGHT_STICK
+item = LEFT_STICK (incomplete)
+[Layout Flickstick checkbox]
 shortdesc = 
 byteoffset = 25
 bitsize = 1
@@ -803,7 +816,7 @@ control = checkbox
 default = 0
 item = Flickstick
 groupcol = true
-[Layout windingStick]
+[Layout windingStick checkbox]
 shortdesc = 
 byteoffset = 25
 bitsize = 1
@@ -812,7 +825,7 @@ control = checkbox
 default = 0
 item = Rotational stick aim
 group = true
-[Layout stickDisable]
+[Layout stickDisable checkbox]
 shortdesc = 
 byteoffset = 25
 bitsize = 1
@@ -823,18 +836,104 @@ item = Disable right joystick in mouse mode
 group = true
 
 [Sensitivities]
-shortdesc = Gyro sensitivity
+[GYRO_SENS]
+shortdesc = GYRO_SENS
 byteoffset = 1
 bitsize = 32
 bitoffset = 0
 control = spinboxf
 decimals = 2
 default = 0100
-minimum = 0001
+minimum = 0000
 maximum = 1000
 step = 001
-[Stick sensitivity]
-shortdesc = Stick sensitivity
+group = true
+
+[Acceleration]
+[MIN_GYRO_SENS]
+shortdesc = MIN_GYRO_SENS
+byteoffset = 26
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 00100
+minimum = 00000
+maximum = 10000
+step = 001
+groupcol = true
+[MAX_GYRO_SENS]
+shortdesc = MAX_GYRO_SENS
+byteoffset = 30
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 00100
+minimum = 00000
+maximum = 10000
+step = 001
+group = true
+[MIN_GYRO_THRESHOLD]
+shortdesc = MIN_GYRO_THRESHOLD
+byteoffset = 34
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 000000
+minimum = 000000
+maximum = 100000
+step = 001
+groupcol = true
+[MAX_GYRO_THRESHOLD]
+shortdesc = MAX_GYRO_THRESHOLD
+byteoffset = 38
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 000000
+minimum = 000000
+maximum = 100000
+step = 0010
+group = true
+
+[Virtual Controller Stick Config]
+[LEFT_STICK_UNDEADZONE_INNER]
+shortdesc = LEFT_STICK_UNDEADZONE_INNER
+byteoffset = 17
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+default = 000
+decimals = 2
+step = 005
+minimum = 000
+maximum = 100
+group = true
+[SPACE LEFT_STICK_UNDEADZONE_OUTER]
+control = space
+default = 5
+group = true
+[LEFT_STICK_UNDEADZONE_OUTER]
+shortdesc = LEFT_STICK_UNDEADZONE_OUTER
+byteoffset = 21
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+default = 000
+decimals = 2
+step = 005
+minimum = 000
+maximum = 100
+group = true
+[SPACE LEFT_VIRTUAL_SCALE]
+control = space
+default = 25
+group = true
+[LEFT_VIRTUAL_SCALE]
+shortdesc = LEFT_VIRTUAL_SCALE
 byteoffset = 5
 bitsize = 32
 bitoffset = 0
@@ -845,20 +944,12 @@ minimum = 0001
 maximum = 1000
 step = 001
 group = true
-[Game sensitivity]
-shortdesc = Max stick game speed (joystick mode only)
-byteoffset = 9
-bitsize = 32
-bitoffset = 0
-control = spinboxf
-decimals = 2
-default = 36000
-minimum = 00001
-maximum = 99999
-step = 000010
-groupcol = true
-[unpower]
-shortdesc = unpower (joystick mode only)
+[SPACE LEFT_STICK_UNPOWER]
+control = space
+default = 25
+group = true
+[LEFT_STICK_UNPOWER]
+shortdesc = LEFT_STICK_UNPOWER
 byteoffset = 13
 bitsize = 32
 bitoffset = 0
@@ -869,107 +960,101 @@ minimum = 000
 maximum = 200
 step = 010
 group = true
-
-[Un-Deadzone (joystick mode only)]
-shortdesc = Inner deadzone %
-byteoffset = 17
+[RIGHT_STICK_UNDEADZONE_INNER]
+shortdesc = RIGHT_STICK_UNDEADZONE_INNER
+byteoffset = 61
 bitsize = 32
 bitoffset = 0
 control = spinboxf
-default = 0000
+default = 000
 decimals = 2
-step = 00050
-minimum = 00000
-maximum = 10000
-[Deadzone outer]
-shortdesc = Outer deadzone %
-byteoffset = 21
-bitsize = 32
-bitoffset = 0
-control = spinboxf
-default = 0000
-decimals = 2
-step = 00050
-minimum = 00000
-maximum = 10000
+step = 005
+minimum = 000
+maximum = 100
+groupcol = true
+[SPACE RIGHT_STICK_UNDEADZONE_OUTER]
+control = space
+default = 5
 group = true
-[Deadzone Finder checkbox]
-shortdesc	 = 
-byteoffset = 25
-bitsize	   = 1
-bitoffset  = 0
-control    = checkbox
-default    = 0
-item       = Deadzone Finder
-groupcol = true
-[Outer deadzone override]
-shortdesc = 
-byteoffset = 25
-bitsize = 1
-bitoffset = 1
-control = checkbox
-default = 0
-item = Stick overrides outer deadzone
-groupcol = true
-
-[Acceleration]
-shortdesc =
-byteoffset = 25
-bitsize = 1
-bitoffset = 2
-control = checkbox
-default = 0
-item = Enable Acceleration
-[Acceleration slow sens]
-shortdesc = Slow sensitivity
-byteoffset = 26
+[RIGHT_STICK_UNDEADZONE_OUTER]
+shortdesc = RIGHT_STICK_UNDEADZONE_OUTER
+byteoffset = 65
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+default = 000
+decimals = 2
+step = 005
+minimum = 000
+maximum = 100
+group = true
+[SPACE RIGHT_VIRTUAL_SCALE]
+control = space
+default = 25
+group = true
+[RIGHT_VIRTUAL_SCALE]
+shortdesc = RIGHT_VIRTUAL_SCALE
+byteoffset = 53
 bitsize = 32
 bitoffset = 0
 control = spinboxf
 decimals = 2
-default = 00050
-minimum = 00000
-maximum = 10000
+default = 0100
+minimum = 0001
+maximum = 1000
 step = 001
-groupcol = true
-[Acceleration fast sens]
-shortdesc = Fast sensitivity
-byteoffset = 30
+group = true
+[SPACE unpower right]
+control = space
+default = 25
+group = true
+[RIGHT_STICK_UNPOWER]
+shortdesc = RIGHT_STICK_UNPOWER
+byteoffset = 57
 bitsize = 32
 bitoffset = 0
 control = spinboxf
 decimals = 2
-default = 00500
+default = 000
+minimum = 000
+maximum = 200
+step = 010
+group = true
+[mini info undeadzone]
+shortdesc = Prevent game deadzone from interfering with gyro aim
+control = info
+groupcol = true
+[SPACE mini info virtualscale]
+control = space
+default = 60
+group = true
+[mini info virtualscale]
+shortdesc = Scale virtual stick output
+control = info
+group = true
+[SPACE mini info unpower]
+control = space
+default = 25
+group = true
+[mini info unpower]
+shortdesc = Counter game power curve
+control = info
+group = true
+
+[VIRTUAL_STICK_CALIBRATION]
+shortdesc = VIRTUAL_STICK_CALIBRATION
+byteoffset = 9
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 36000
 minimum = 00001
-maximum = 10000
-step = 001
-group = true
-[Acceleration slow threshold]
-shortdesc = Slow threshold
-byteoffset = 34
-bitsize = 32
-bitoffset = 0
-control = spinboxf
-decimals = 2
-default = 000100
-minimum = 000000
-maximum = 100000
-step = 001
-groupcol = true
-[Acceleration fast threshold]
-shortdesc = Fast threshold
-byteoffset = 38
-bitsize = 32
-bitoffset = 0
-control = spinboxf
-decimals = 2
-default = 001000
-minimum = 000001
-maximum = 100000
-step = 0010
-group = true
+maximum = 99999
+step = 000010
 
 [Misc]
+[Calibrate gyro on startup]
 shortdesc = 
 byteoffset = 25
 bitsize = 1
@@ -977,7 +1062,8 @@ bitoffset = 3
 control = checkbox
 default = 1
 item = Calibrate gyro on startup
-[Misc: Calibration Samples]
+group = true
+[Calibration samples]
 shortdesc = Calibration samples
 byteoffset = 51
 bitsize = 16
@@ -988,7 +1074,7 @@ minimum = 00100
 maximum = 10000
 step = 50
 group = true
-[Misc: Tightening threshold]
+[Tightening threshold]
 shortdesc = Tightening threshold
 byteoffset = 42
 bitsize = 32
@@ -1000,8 +1086,8 @@ minimum = 000000
 maximum = 100000
 step = 100
 groupcol = true
-[Misc: Smoothing threshold]
-shortdesc = Smoothing threshold
+[GYRO_SMOOTH_THRESHOLD]
+shortdesc = GYRO_SMOOTH_THRESHOLD
 byteoffset = 46
 bitsize = 32
 bitoffset = 0
@@ -1011,6 +1097,15 @@ default = 0
 minimum = 000000
 maximum = 100000
 step = 100
+group = true
+[Outer deadzone override]
+shortdesc = 
+byteoffset = 25
+bitsize = 1
+bitoffset = 1
+control = checkbox
+default = 0
+item = stick outer deadzone
 group = true
 
 [Output Protocol]
@@ -1031,6 +1126,15 @@ item = Bluetooth PROTOCOL_XB360
 item = Bluetooth PROTOCOL_XB1
 item = Bluetooth PROTOCOL_SWITCH
 item = Bluetooth PROTOCOL_WII
+
+[Info: uJSM?]
+shortdesc = <<<MULTILINE
+A significant chunk of this script was adapted from the PC software JoyShockMapper. Given that I've only implemented a subset of JSM features, and since the target platform is an embedded device (TitanTwo), I felt uJSM (micro JSM) was an appropriate name.
+If you have any interest in using gyro aim on PC, go check out JoyShockMapper! I've intentionally kept all the settings in uJSM the same as they appear in JSM, so basic configuration should feel familiar :)
+
+Anything capitalized works exactly the same in the PC JoyShockMapper. If it's not capitalized, then it's either not in JoyShockMapper, or it's configured in a different way.
+MULTILINE
+control = info
 
 [Info: Mouse vs Joystick?]
 shortdesc = <<<MULTILINE
@@ -1068,9 +1172,9 @@ control = info
 
 [Info: Max Stick Game Speed]
 shortdesc = <<<MULTILINE
-Max stick game speed is a concept from JSM; it's suppposed to represent how fast (in degrees/s) the game allows you to look around using the stick. If you set it correctly in JSM, (game stick logic permitting) the motion of the controller will be translated 1:1 to the game. Additionally, this allows you to translate your preferred sensitivity between different games.
+Max stick game speed is a concept from JSM; it's supposed to represent how fast (in degrees/s) the game allows you to look around using the stick. If you set it correctly in JSM, (game stick logic permitting) the motion of the controller will be translated 1:1 to the game. Additionally, this allows you to translate your preferred sensitivity between different games.
 
-However! Most games have a low max speed which will clip fast movemonts (you know this if you've used mouse input on your Titan), the TitanTwo does not report gyro data to the script in degrees/s, and the specific number (unique per game) is pretty difficult to determine with precision. 
+However! Most games have a low max speed which will clip fast movements (you know this if you've used mouse input on your Titan), the TitanTwo does not report gyro data to the script in degrees/s, and the specific number (unique per game) is pretty difficult to determine with precision. 
 
 What this setting does in abstract is scale your motion to the range of the virtual joystick. Lower values will reach 100% output quicker- allowing you to easily hit the fastest turn speed with minimal motion, but move too fast and the game camera won't keep up. Higher values allow more room for quicker and more aggressive motion (like quick panic flicks), but you start to lose precision for slower movements.
 
@@ -1098,7 +1202,7 @@ control = info
 [Info: Acceleration]
 shortdesc = <<<MULTILINE
 Define a linear acceleration between the two sensitivities at the given movement speed thresholds.
-There will be no acceleration below the slow threshold or above the fast threshold.
+There will be no acceleration below the min threshold nor above the max threshold.
 MULTILINE
 control = info
 
@@ -1118,10 +1222,10 @@ control = info
 
 [Info: Speed Thresholds?]
 shortdesc = <<<MULTILINE
-Normally, you configure thresholds like this in values of degrees per second: how fast you are turning the controller. Unfortunately the TitanTwo doesn't present raw gyro data in this way, so the threshold number here is more abstract.
-Try values like 0.01 when trying to set a threshold that activates when moving as slow as possible. The highest sensible values is somewhere under 200.
+Configure thresholds in values of degrees per second: how fast you are turning the controller. Unfortunately the TitanTwo doesn't present raw gyro data in this way, so the threshold number here is imperfect. I've tried to play with the numbers to make it close to reality, but you may find the settings are not exactly the same as what you'd use in JSM for PC.
+Try values like 10 when trying to set a threshold that activates when moving as slow as possible. The highest sensible values is somewhere under 1000.
 
-You can test where a threshold is by enabling acceleration with slow sensitivity 0, slow threshold 0, fast sensitivity 0.01. Then set fast threshold to the desired test number and see how fast you must move the controller to get a response.
+You can test where a threshold is by enabling acceleration with MIN_GYRO_SENS 0, MAX_GYRO_SENS 1. Then set MIN_GYRO_THRESHOLD to the desired test number, MAX_GYRO_THRESHOLD to one above that, and see how fast you must move the controller to get a response. Remember to set GYRO_SENS to 0.0, so it doesn't override the min/max! (You wouldn't have to do this in JSM for PC)
 MULTILINE
 control = info
 
@@ -1129,7 +1233,7 @@ control = info
 shortdesc = <<<MULTILINE
 Most of the concepts used and a lot of the code came from Jibb Smart's gyro wiki:
 http://gyrowiki.jibbsmart.com
-As well as Jibb Smart's JoyShockMapper project:
+As well as the JoyShockMapper project by Jibb Smart and Electronicks:
 https://github.com/Electronicks/JoyShockMapper
 Thank you!
 MULTILINE
