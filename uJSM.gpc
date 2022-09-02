@@ -23,12 +23,14 @@ TODO
 add player lean player space
 add world space as an option
 kalman 1d?
+in heavybullets, jsm roughly 2x as sensitive given same settings?
+document the blink timing thing
+update blink timer function to average a few presses, not just two
+dpad adjust for inner undeadzone
 do the various sens functions still take accel into account?
-note about gyro_sens overriding accel in IC
 read out 'gyro' to seg disp
 add a config.h to include
 --gyro off needs to be configurable
-add jsm config names for easy JSM learning
 smoothing incurs high CPU
 does override outer work for virtual_scale? It should.
 add report latency output, note that it's unused
@@ -56,6 +58,7 @@ scrub delta time outta here
 #define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
 
 //Misc Globals
+uint8 delayLog;
 uint32 offsetSamples;
 uint32 counter = 0;
 uint32 mouseSamples;
@@ -67,7 +70,6 @@ fix32 accumulatedOffset[3];
 fix32 camera[2];
 fix32 gyroStickX;
 fix32 gyroStickY;
-bool winding = TRUE;//DEBUG
 
 
 int16 gX;
@@ -78,40 +80,42 @@ int16 gZ;
 uint8 gyro_output = 0; //0 for mouse output, 1 for right stick, 2 for left stick
 uint8 outProtocol = 0;
 uint16 calibrationCounter = 1000;
+uint16 maxStickGameSpeed = 360;
 bool calibrating = TRUE;
 bool outerStickOverride = TRUE;
 bool stickDisable = FALSE;
 bool isLeft = FALSE;
+bool winding = FALSE;//DEBUG
 bool logging = TRUE;//DEBUG
 char gyro_space = 'PLAYER_TURN';
-fix32 undeadzone_inner = 0.0;
-fix32 undeadzone_outer = 0.0;
-fix32 maxStickGameSpeed = 360.0;
-fix32 gyro_smooth_threshold = 0.0;
-fix32 gyro_tight_threshold = 0.0;
 fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
 fix32 gyro_sens = 1.0;
-fix32 min_gyro_threshold = 20.0;
-fix32 max_gyro_threshold = 800.0;
 fix32 unpower = 0.0;
 fix32 virtual_scale = 1.0;
-fix32 mouseCalibration = 1.0;
 //mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
-
+fix32 mouseCalibration = 1.0;
+//candidates for uint to save on mem
+fix32 undeadzone_inner = 0.0;
+fix32 undeadzone_outer = 0.0;
+fix32 gyro_smooth_threshold = 0.0;
+fix32 gyro_tight_threshold = 0.0;
+fix32 min_gyro_threshold = 20.0;
+fix32 max_gyro_threshold = 800.0;
 
 init {
   pmem_load();
   
   //ints
   gyro_output     = pmem_read(0);
-  gyro_output = 0;//DEBUG
+  gyro_output = 1;//DEBUG
   outProtocol        = pmem_read(50);
   
   //bools
   outerStickOverride = (pmem_read(25)>>1) & 0b1;
-  outerStickOverride = TRUE;//DEBUG
+  outerStickOverride = FALSE;//DEBUG
   calibrating        = (pmem_read(25)>>3) & 0b1;
+  calibrating = FALSE;//DEBUG
   //flickstick       = (pmem_read(25)>>3) & 0b1;
   stickDisable       = (pmem_read(25)>>5) & 0b1;
   //fix32s & int16s
@@ -119,13 +123,14 @@ init {
   calibrationCounter = 1000;//DEBUG
   pmem_read(17, &undeadzone_inner);
   pmem_read(21, &undeadzone_outer);
-  undeadzone_inner = 0.26;//DEBUG
-  undeadzone_outer = 0.08;//DEBUG
+  undeadzone_inner = 0.40;//DEBUG
+  undeadzone_outer = 0.0;//DEBUG
   pmem_read(5,  &virtual_scale);
-  virtual_scale = 1.5;//DEBUG
+  virtual_scale = 1.0;//DEBUG
   pmem_read(13, &unpower);
+  unpower = 0.0;//DEBUG
   pmem_read(9,  &maxStickGameSpeed);
-  maxStickGameSpeed = 720.0;//DEBUG
+  maxStickGameSpeed = 194;//DEBUG
   pmem_read(34, &min_gyro_threshold);
   pmem_read(38, &max_gyro_threshold);
   pmem_read(26, &min_gyro_sens);
@@ -230,8 +235,17 @@ main {
   
   if  (gyro_output) {
     if (gyro_sens == 0.0 && gyro_output == 1) {
-      // hack to help with finding deadzones more quickly
+      //hack to help with finding deadzones more quickly
       set_val(STICK_1_X, undeadzone_inner * 100.0);
+      
+      //hack to help with finding max stick game speed
+      maxStickGameSpeed = blinkerSync();
+      delayLog++;
+      if (delayLog >= 75) {
+        printf("VIRTUAL_STICK_CALIBRATION %d", maxStickGameSpeed);
+        delayLog = 0;
+      }
+      
     } else if (gyro_output == 1) {
       set_val(STICK_1_X, gyroStickX * 100.0);
       set_val(STICK_1_Y, gyroStickY * 100.0);
@@ -267,6 +281,28 @@ main {
       set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtual_scale);
     }
   }
+}
+
+uint16 blink = 1000;
+uint16 blinkerSync() {
+  //blink once every 1000ms
+  int32 blinkOff = blink - 50;
+  if (led_vmget(LED_1) == 0) {
+    led_vmset(LED_1, 50, blinkOff, 2);
+  }
+  if (event_active(BUTTON_11)) { blink += 10; }//D-DOWN: interval 10ms slower
+  if (event_active(BUTTON_10)) { blink -= 10; }//D-UP: interval 10ms faster
+  if (event_active(BUTTON_12)) { blink += 100; }//D-LEFT: interval 100ms slower
+  if (event_active(BUTTON_13)) { blink -= 100; }//D-RIGHT: interval 100ms faster
+  
+  //South face button makes the interval start the moment the button is released  
+  if (event_active(BUTTON_16)) {
+    led_vmset(LED_1, 50, blinkOff, 2);
+    blink = (uint32)time_release(BUTTON_16);
+  }
+  blink = clamp((int32)blink, 100, 2000);
+  
+  return 360000 / blink;//returns degrees per second
 }
 
 //thanks to consoletuner discord member ME.
@@ -654,7 +690,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     unpower = 1.0;
   }
   
-  fix32 stickVelocity = pow(clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower) * maxStickGameSpeed * virtual_scale;
+  fix32 stickVelocity = pow(clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower) * (fix32)maxStickGameSpeed * virtual_scale;
   fix32 expectedX = 0.0;
   fix32 expectedY = 0.0;
   gyroStickX = 0.0;
@@ -674,7 +710,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   fix32 targetGyroVelocity = pythag(expectedX/100.0, expectedY/100.0) * 100.0; //sq(expected) exceeds fix32 range, oops!
   
   // map gyro velocity to achievable range in 0-1
-  fix32 gyroInStickStrength = targetGyroVelocity >= maxStickGameSpeed ? 1.0 : targetGyroVelocity / maxStickGameSpeed;
+  fix32 gyroInStickStrength = targetGyroVelocity >= (fix32)maxStickGameSpeed ? 1.0 : targetGyroVelocity / (fix32)maxStickGameSpeed;
   // unpower curve
   if (unpower != 0.0) {
     gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
@@ -735,7 +771,7 @@ camSpeedX -= jc->delta_flick >= 0 ? maxStickGameSpeed : -maxStickGameSpeed;
 }
 */
 
-uint32 delayLog;
+
 void logger(fix32 camera0, fix32 camera1, fix32 stickX, fix32 stickY, fix32 stickLength,
 fix32 stickVelocity, fix32 expectedX, fix32 expectedY, fix32 targetGyroVelocity,
 fix32 gyroInStickStrength, fix32 gyroStickX, fix32 gyroStickY) {
@@ -777,7 +813,7 @@ void logger2(fix32 input1, fix32 input2, fix32 input3) {
 I make use of empty [sections] to be heading titles in the GUI.
 Then I group [detailed-config-name] elements under those empty sections.
 This allows me to have nice GUI titles, while also allowing for accurate
-and readable config names in ICBytable.
+and readable config names in IC-ByteTable.
 
 <shortdesc>
 Use your controller's gyro to aim! Supports outputting as mouse or joystick. See interactive config for help.
@@ -792,7 +828,7 @@ gyro mouse flickstick jsm joyshockmapper dualsense steamcontroller dualshock ds4
 shortdesc =
 control = config
 item        = Steam Controller:#19:08#33:00FA
-item        = Deadzone Finder:0100000000#19:000000000000000000#3D:00190000
+item        = Deadzone and VIRTUAL_STICK_CALIBRATION Finder:0100000000#19:000000000000000000#3D:00190000
 item        = Acceleration Example:#01:00000000#1A:00008000000200000014000003200000
 item        = Threshold Testing Example (Motion only above 500 degrees per second):#01:00000000#1A:000000000001000001F4000001F50000
 item        = User Preset 1:
@@ -1044,14 +1080,17 @@ group = true
 [VIRTUAL_STICK_CALIBRATION]
 shortdesc = VIRTUAL_STICK_CALIBRATION
 byteoffset = 9
-bitsize = 32
+bitsize = 16
 bitoffset = 0
-control = spinboxf
-decimals = 2
-default = 36000
-minimum = 00001
-maximum = 99999
+control = spinbox
+default = 360
+minimum = 0001
+maximum = 1000
 step = 000010
+[mini info VIRTUAL_STICK_CALIBRATION2]
+shortdesc = The maximum speed you can look around in game, in degrees per second
+control = info
+groupcol = true
 
 [Misc]
 [Calibrate gyro on startup]
