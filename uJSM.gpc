@@ -58,9 +58,7 @@ scrub delta time outta here
 #define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
 
 //Misc Globals
-uint8 delayLog;
 uint32 offsetSamples;
-uint32 counter = 0;
 uint32 mouseSamples;
 fix32 gyroVelocity[3];//0 is Yaw (Z), 1 is Pitch (X), 2 is roll (Y)
 fix32 accelGrav[3];// Using order Z X Y again
@@ -71,15 +69,9 @@ fix32 camera[2];
 fix32 gyroStickX;
 fix32 gyroStickY;
 
-
-int16 gX;
-int16 gY;
-int16 gZ;
-
 //Settings
 uint8 gyro_output = 0; //0 for mouse output, 1 for right stick, 2 for left stick
 uint8 outProtocol = 0;
-uint16 calibrationCounter = 1000;
 uint16 maxStickGameSpeed = 360;
 bool calibrating = TRUE;
 bool outerStickOverride = TRUE;
@@ -107,40 +99,25 @@ init {
   pmem_load();
   
   //ints
-  gyro_output     = pmem_read(0);
-  gyro_output = 1;//DEBUG
+  gyro_output        = pmem_read(0);
   outProtocol        = pmem_read(50);
-  
   //bools
   outerStickOverride = (pmem_read(25)>>1) & 0b1;
-  outerStickOverride = FALSE;//DEBUG
   calibrating        = (pmem_read(25)>>3) & 0b1;
-  calibrating = FALSE;//DEBUG
   //flickstick       = (pmem_read(25)>>3) & 0b1;
   stickDisable       = (pmem_read(25)>>5) & 0b1;
   //fix32s & int16s
-  pmem_read(51, &calibrationCounter);
-  calibrationCounter = 1000;//DEBUG
   pmem_read(17, &undeadzone_inner);
   pmem_read(21, &undeadzone_outer);
-  undeadzone_inner = 0.40;//DEBUG
-  undeadzone_outer = 0.0;//DEBUG
   pmem_read(5,  &virtual_scale);
-  virtual_scale = 1.0;//DEBUG
   pmem_read(13, &unpower);
-  unpower = 0.0;//DEBUG
   pmem_read(9,  &maxStickGameSpeed);
-  maxStickGameSpeed = 194;//DEBUG
   pmem_read(34, &min_gyro_threshold);
   pmem_read(38, &max_gyro_threshold);
   pmem_read(26, &min_gyro_sens);
   pmem_read(30, &max_gyro_sens);
   pmem_read(1,  &gyro_sens);
-  gyro_sens = 1.0;//DEBUG
-  min_gyro_threshold = 20.0;
-  max_gyro_threshold = 800.0;
-  min_gyro_sens = 0.5;
-  max_gyro_sens = 2.0;
+  
   //As per JSM, setting GYRO_SENS overrides min/max (accel)
   if (gyro_sens > 0.0) { min_gyro_sens = max_gyro_sens = gyro_sens; }
   pmem_read(42, &gyro_tight_threshold);
@@ -149,6 +126,20 @@ init {
   max_gyro_threshold /= 25.0;//such that they correspond to angular velocity
   gyro_tight_threshold /= 25.0;//(using same number as accel normalized to grav)
   gyro_smooth_threshold /= 25.0;
+  
+  gyro_output = 0;//DEBUG
+  outerStickOverride = FALSE;//DEBUG
+  calibrating = TRUE;//DEBUG
+  undeadzone_inner = 0.40;//DEBUG
+  undeadzone_outer = 0.0;//DEBUG
+  virtual_scale = 1.0;//DEBUG
+  unpower = 0.0;//DEBUG
+  maxStickGameSpeed = 194;//DEBUG
+  gyro_sens = 1.0;//DEBUG
+  gyro_tight_threshold = 0.0;
+  gyro_smooth_threshold = 500.0/25.0;
+  
+  
   
   switch (outProtocol) {
     case 1:  port_connect(PORT_USB_C, PROTOCOL_AUTO);   break;
@@ -167,7 +158,6 @@ init {
 }
 
 main {
-  
   if (FALSE) {
     //temp binds for testing
     if (is_active(BUTTON_4)) {
@@ -188,6 +178,9 @@ main {
     //True Hz detection thanks to consoletuner discord member ME.
     static uint32 reportLatency;
     static fix32 old_gyros;
+    int16 gX;
+    int16 gY;
+    int16 gZ;
     if (calibrating) {
       fix32 f_gX = get_actual(GYRO_1_X);
       fix32 f_gY = get_actual(GYRO_1_Y);
@@ -195,6 +188,7 @@ main {
       fix32 gyros = sqrt(sq(f_gX) + sq(f_gY) + sq(f_gZ));
       //Check for new values from sensor
       if (old_gyros != gyros) {
+
         old_gyros = gyros;
         gX = GetRaw(f_gX);
         gY = GetRaw(f_gY);
@@ -240,6 +234,8 @@ main {
       
       //hack to help with finding max stick game speed
       maxStickGameSpeed = blinkerSync();
+      //TODO move to function
+      static uint8 delayLog = 0;
       delayLog++;
       if (delayLog >= 75) {
         printf("VIRTUAL_STICK_CALIBRATION %d", maxStickGameSpeed);
@@ -366,17 +362,23 @@ bool GYRO_OFF() {
 void processInput(uint32 deltaTime) {
   //calibrating
   if (calibrating) {
+    static uint16 counter = 0;
+    static int16 calibrationCounter = -1;
+    if (calibrationCounter == -1) pmem_read(51, &calibrationCounter);
     offsetSamples++;
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
     accumulatedOffset[2] += gyroVelocity[2];
-    if (!led_vmget(LED_3) == -1) { led_vmset(LED_3, 250, 250, -1); }
     const uint8 disp[] = { _0_, _1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, _G_};
-    fix32 dispf = round((fix32)counter/(fix32)calibrationCounter*10.0);
-    display_overlay(disp[(uint8)dispf], 1000);
-    printf("<big><b>calibrating! %.0f%%", (fix32)counter/(fix32)calibrationCounter*100.0);
+    if (counter % (calibrationCounter/10) == 0) {//exec on integer progress
+      if (led_vmget(LED_1) != -1) led_vmset(LED_1, 50, 250, -1);//blink blue
+      uint8 dispf = counter/(calibrationCounter/10);//0-10
+      display_overlay(disp[dispf], 1000);//0-10 on titantwo display
+      printf("<big><b>calibrating! %d%%", counter/(calibrationCounter/100));//0-100
+    }
     counter++;
     if (counter > calibrationCounter) {
+      led_reset();
       led_vmset(LED_3, 50, 50, 10);
       calibrating = FALSE;
     }
@@ -388,12 +390,15 @@ void processInput(uint32 deltaTime) {
   calibratedGyro[0] = (gyroVelocity[0] - gyroCalibration[0]);
   calibratedGyro[1] = (gyroVelocity[1] - gyroCalibration[1]);
   calibratedGyro[2] = (gyroVelocity[2] - gyroCalibration[2]);
+  //fix32 *Zptr, *Xptr, *Yptr;
+  //Zptr = &calibratedGyro[0];
+  //Xptr = &calibratedGyro[1];
+  //Yptr = &calibratedGyro[2];
   
   
   //smoothing (from wiki)
   if (gyro_smooth_threshold > 0.0) {
-    calibratedGyro[0] = getTieredSmoothedInput0(calibratedGyro[0], calibratedGyro[1], gyro_smooth_threshold/2.0, gyro_smooth_threshold);
-    calibratedGyro[1] = getTieredSmoothedInput1(calibratedGyro[0], calibratedGyro[1], gyro_smooth_threshold/2.0, gyro_smooth_threshold);
+    getTieredSmoothedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_smooth_threshold/2.0, gyro_smooth_threshold);
   }
   
   //cutoff/recovery... and maybe the jsm smoothing
@@ -402,8 +407,7 @@ void processInput(uint32 deltaTime) {
   
   //tightening
   if (gyro_tight_threshold > 0.0) {
-    calibratedGyro[0] = getTightenedInput0(calibratedGyro[0], calibratedGyro[1], gyro_tight_threshold);
-    calibratedGyro[1] = getTightenedInput1(calibratedGyro[0], calibratedGyro[1], gyro_tight_threshold);
+    getTightenedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_tight_threshold);
   }
   
   //accelerating
@@ -496,164 +500,49 @@ combo recalibrate {
 }
 
 // smoothing buffer - adapted from blog
-fix32 getDirectInput(fix32 input) {//What is this function even doing?
-  return input;
+void getSmoothedInput(fix32 *avg) {
+  static uint8 CurrentInputIndex = -1;
+  CurrentInputIndex = (CurrentInputIndex + 1) % SMOOTH_BUFFER_SIZE;
+  
+  fix32 buf;
+  static fix32 InputBuffer0[SMOOTH_BUFFER_SIZE];
+  static fix32 InputBuffer1[SMOOTH_BUFFER_SIZE];
+  
+  InputBuffer0[CurrentInputIndex] = avg[0];
+  InputBuffer1[CurrentInputIndex] = avg[1];
+  
+  uint8 i;
+  for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
+    avg[0] += InputBuffer0[i];
+    avg[1] += InputBuffer1[i];
+  }
+  avg[0] /= (fix32)SMOOTH_BUFFER_SIZE;
+  avg[1] /= (fix32)SMOOTH_BUFFER_SIZE;
 }
 
-fix32 InputBuffer0[SMOOTH_BUFFER_SIZE];
-int32 CurrentInputIndex0;
-fix32 InputBuffer1[SMOOTH_BUFFER_SIZE];
-int32 CurrentInputIndex1;
-
-fix32 getSmoothedInput0(fix32 input) {
-  CurrentInputIndex0 = (int32)mod((fix32)CurrentInputIndex0 + (fix32)1, (fix32)SMOOTH_BUFFER_SIZE);
-  InputBuffer0[CurrentInputIndex0] = input;
-  fix32 average = 0.0;
-  int32 i;
-  for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
-    average += InputBuffer0[i];
-  }
-  average /= (fix32)SMOOTH_BUFFER_SIZE;
-  return average;
-}
-fix32 getSmoothedInput1(fix32 input) {
-  CurrentInputIndex1 = (int32)mod((fix32)CurrentInputIndex1 + (fix32)1, (fix32)SMOOTH_BUFFER_SIZE);
-  InputBuffer1[CurrentInputIndex1] = input;
-  fix32 average = 0.0;
-  int32 i;
-  for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
-    average += InputBuffer1[i];
-  }
-  average /= (fix32)SMOOTH_BUFFER_SIZE;
-  return average;
-}
-fix32 getTieredSmoothedInput0(fix32 input0, fix32 input1, fix32 threshold1, fix32 threshold2) {
-  fix32 inputMagnitude = pythag(input0, input1);
+void getTieredSmoothedInput(fix32 *input0, fix32 *input1, fix32 threshold1, fix32 threshold2) {
+  fix32 inputMagnitude = pythag(*input0, *input1);
   fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
   directWeight = clamp(directWeight, 0.0, 1.0);
-  return getDirectInput(input0 * directWeight) + getSmoothedInput0(input0 * (1.0 - directWeight));
-}
-fix32 getTieredSmoothedInput1(fix32 input0, fix32 input1, fix32 threshold1, fix32 threshold2) {
-  fix32 inputMagnitude = pythag(input0, input1);
-  fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
-  directWeight = clamp(directWeight, 0.0, 1.0);
-  return getDirectInput(input1 * directWeight) + getSmoothedInput1(input1 * (1.0 - directWeight));
-}
-
-fix32 smoothJSM0(fix32 gyroX, fix32 gyroY, fix32 speed, fix32 recovery) {
-  
-  /* fix32 gyroLength = sqrt(gyroX * gyroX + gyroY * gyroY); */
-// do gyro smoothing
-// convert gyro smooth time to number of samples
-  /* auto numGyroSamples = jc->getSetting(SettingID::GYRO_SMOOTH_TIME) * 1000.f / tick_time.get(); */
-  /* if (numGyroSamples < 1) */
-  /* 	numGyroSamples = 1; // need at least 1 sample */
-  /* auto threshold = jc->getSetting(SettingID::GYRO_SMOOTH_THRESHOLD); */
-  /* jc->GetSmoothedGyro(gyroX, gyroY, gyroLength, threshold / 2.0f, threshold, int(numGyroSamples), gyroX, gyroY); */
-  /* //COUT << "%d Samples for threshold: %0.4f\n", numGyroSamples, gyro_smooth_threshold * maxSmoothingSamples); */
-  
-  // now, honour gyro_cutoff_speed
-  fix32 gyroLength = pythag(gyroX, gyroY);
-  if (recovery > speed) {
-    // we can use gyro_cutoff_speed
-    fix32 gyroIgnoreFactor = (gyroLength - speed) / (recovery - speed);
-    if (gyroIgnoreFactor < 1.0) {
-      if (gyroIgnoreFactor <= 0.0) {
-        gyroX = gyroY = gyroLength = 0.0;
-      } else {
-        gyroX *= gyroIgnoreFactor;
-        gyroY *= gyroIgnoreFactor;
-        gyroLength *= gyroIgnoreFactor;
-      }
-    }
-  }
-  else if (speed > 0.0 && gyroLength < speed) {
-    // gyro_cutoff_recovery is something weird, so we just do a hard threshold
-    gyroX = gyroY = gyroLength = 0.0;
-  }
-  return gyroX;
-}
-fix32 smoothJSM1(fix32 gyroX, fix32 gyroY, fix32 speed, fix32 recovery) {
-  // now, honour gyro_cutoff_speed
-  fix32 gyroLength = pythag(gyroX, gyroY);
-  if (recovery > speed) {
-    // we can use gyro_cutoff_speed
-    fix32 gyroIgnoreFactor = (gyroLength - speed) / (recovery - speed);
-    if (gyroIgnoreFactor < 1.0) {
-      if (gyroIgnoreFactor <= 0.0) {
-        gyroX = gyroY = gyroLength = 0.0;
-      } else {
-        gyroX *= gyroIgnoreFactor;
-        gyroY *= gyroIgnoreFactor;
-        gyroLength *= gyroIgnoreFactor;
-      }
-    }
-  }
-  else if (speed > 0.0 && gyroLength < speed) {
-    // gyro_cutoff_recovery is something weird, so we just do a hard threshold
-    gyroX = gyroY = gyroLength = 0.0;
-  }
-  return gyroY;
+  fix32 avg[2];
+  avg[0] = *input0 * (1.0 - directWeight);
+  avg[1] = *input1 * (1.0 - directWeight);
+  getSmoothedInput(&avg);
+  *input0 = (*input0 * directWeight) + avg[0];
+  *input1 = (*input1 * directWeight) + avg[1];
 }
 
-/* void GetSmoothedGyro(float x, float y, float length, float bottomThreshold, float topThreshold, int maxSamples, float &outX, float &outY) {
-// this is basically the same as we use for smoothing flick-stick rotations, but because this deals in vectors, it's a slightly different function. Not worth abstracting until it'll be used in more ways
-// which item in the circular smoothing buffer will we write over?
-_frontGyroSample--;
-if (_frontGyroSample < 0)
-_frontGyroSample = MaxGyroSamples - 1;
-float immediateFactor;
-if (topThreshold <= bottomThreshold)
-{
-immediateFactor = length < bottomThreshold ? 0.0f : 1.0f;
-}
-else
-{
-immediateFactor = (length - bottomThreshold) / (topThreshold - bottomThreshold);
-}
-// clamp to [0, 1] range
-if (immediateFactor < 0.0f)
-{
-immediateFactor = 0.0f;
-}
-else if (immediateFactor > 1.0f)
-{
-immediateFactor = 1.0f;
-}
-float smoothFactor = 1.0f - immediateFactor;
-// now we can push the smooth sample (or as much of it as we want smoothed)
-FloatXY frontSample = _gyroSamples[_frontGyroSample] = { x * smoothFactor, y * smoothFactor };
-// and now calculate smoothed result
-float xResult = frontSample.x() / maxSamples;
-float yResult = frontSample.y() / maxSamples;
-for (int i = 1; i < maxSamples; i++)
-{
-int rotatedIndex = (_frontGyroSample + i) % MaxGyroSamples;
-frontSample = _gyroSamples[rotatedIndex];
-xResult += frontSample.x() / maxSamples;
-yResult += frontSample.y() / maxSamples;
-}
-// finally, add immediate portion
-outX = xResult + x * immediateFactor;
-outY = yResult + y * immediateFactor;
+/*//smoothing from jsm
+
 }*/
 
-//tight
-fix32 getTightenedInput0(fix32 input0, fix32 input1, fix32 threshold) {
-  fix32 inputMagnitude = pythag(input0, input1);
+void getTightenedInput(fix32 *input0, fix32 *input1, fix32 threshold) {
+  fix32 inputMagnitude = pythag(*input0, *input1);
   if (inputMagnitude < threshold) {
     fix32 inputScale = inputMagnitude / threshold;
-    return input0 * inputScale;
+    *input0 *= inputScale;
+    *input1 *= inputScale;
   }
-  return input0;
-}
-fix32 getTightenedInput1(fix32 input0, fix32 input1, fix32 threshold) {
-  fix32 inputMagnitude = pythag(input0, input1);
-  if (inputMagnitude < threshold) {
-    fix32 inputScale = inputMagnitude / threshold;
-    return input1 * inputScale;
-  }
-  return input1;
 }
 
 fix32 pythag(fix32 a, fix32 b) {
@@ -771,11 +660,11 @@ camSpeedX -= jc->delta_flick >= 0 ? maxStickGameSpeed : -maxStickGameSpeed;
 }
 */
 
-
 void logger(fix32 camera0, fix32 camera1, fix32 stickX, fix32 stickY, fix32 stickLength,
 fix32 stickVelocity, fix32 expectedX, fix32 expectedY, fix32 targetGyroVelocity,
 fix32 gyroInStickStrength, fix32 gyroStickX, fix32 gyroStickY) {
   if (!logging) {
+    static uint8 delayLog = 0;
     delayLog++;
     if (delayLog >= 75) {
       printf("<big><br>\
@@ -799,6 +688,7 @@ fix32 gyroInStickStrength, fix32 gyroStickX, fix32 gyroStickY) {
 
 void logger2(fix32 input1, fix32 input2, fix32 input3) {
   if (logging) {
+    static uint8 delayLog = 0;
     delayLog++;
     if (delayLog >= 75) {
       printf("<big><br>\
@@ -1168,7 +1058,7 @@ item = Bluetooth PROTOCOL_WII
 
 [Info: uJSM?]
 shortdesc = <<<MULTILINE
-A significant chunk of this script was adapted from the PC software JoyShockMapper. Given that I've only implemented a subset of JSM features, and since the target platform is an embedded device (TitanTwo), I felt uJSM (micro JSM) was an appropriate name.
+A significant chunk of this script was adapted from the PC software <a href=https://github.com/Electronicks/JoyShockMapper>JoyShockMapper</a>. Given that I've only implemented a subset of JSM features, and since the target platform is an embedded device (TitanTwo), I felt uJSM (micro JSM) was an appropriate name.
 If you have any interest in using gyro aim on PC, go check out JoyShockMapper! I've intentionally kept all the settings in uJSM the same as they appear in JSM, so basic configuration should feel familiar :)
 
 Anything capitalized works exactly the same in the PC JoyShockMapper. If it's not capitalized, then it's either not in JoyShockMapper, or it's configured in a different way.
@@ -1255,7 +1145,7 @@ Calibration samples: How many samples to collect during calibration. The control
 
 Tightening squishes output towards zero below the threshold, used to help prevent jitter when trying to hold still at higher sensitivities.
 
-Smoothing helps reduce jitter above the threshold, useful for unsteady hands, or to smooth out noise with higher sensitivities.
+Smoothing helps reduce jitter below the threshold, useful for unsteady hands, or to smooth out noise with higher sensitivities.
 MULTILINE
 control = info
 
@@ -1271,9 +1161,9 @@ control = info
 [Credits]
 shortdesc = <<<MULTILINE
 Most of the concepts used and a lot of the code came from Jibb Smart's gyro wiki:
-http://gyrowiki.jibbsmart.com
+<a href=http://gyrowiki.jibbsmart.com>http://gyrowiki.jibbsmart.com</a>
 As well as the JoyShockMapper project by Jibb Smart and Electronicks:
-https://github.com/Electronicks/JoyShockMapper
+<a href=https://github.com/Electronicks/JoyShockMapper>https://github.com/Electronicks/JoyShockMapper</a>
 Thank you!
 MULTILINE
 control = info
