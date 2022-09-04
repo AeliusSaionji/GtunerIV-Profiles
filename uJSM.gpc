@@ -25,13 +25,11 @@ add world space as an option
 kalman 1d?
 in heavybullets, jsm roughly 2x as sensitive given same settings?
 document the blink timing thing
-update blink timer function to average a few presses, not just two
-dpad adjust for inner undeadzone
+dpad adjust for inner undeadzone & save
 do the various sens functions still take accel into account?
 read out 'gyro' to seg disp
 add a config.h to include
 --gyro off needs to be configurable
-smoothing incurs high CPU
 does override outer work for virtual_scale? It should.
 add report latency output, note that it's unused
 implement checks for calls that exceed data type (and definitely put the check in pythag)
@@ -49,13 +47,14 @@ on demand adjust of sens/speed/smooth/etc? and pmem_save
 per stick settings as per jsm
 optimize variables and memory usage
 scrub delta time outta here
+the hacks rely on gyro_sens==0, which misses accel
 
 */
 
 #include <mouse.gph>
 #include <keyboard.gph>
 #include <display.gph>
-#define SMOOTH_BUFFER_SIZE 32 //Don't exceed 70
+#define SMOOTH_BUFFER_SIZE 32 //>45 May lag CPU, >90 very limited memory available
 
 //Misc Globals
 uint32 offsetSamples;
@@ -127,15 +126,15 @@ init {
   gyro_tight_threshold /= 25.0;//(using same number as accel normalized to grav)
   gyro_smooth_threshold /= 25.0;
   
-  gyro_output = 0;//DEBUG
+  gyro_output = 1;//DEBUG
   outerStickOverride = FALSE;//DEBUG
   calibrating = TRUE;//DEBUG
-  undeadzone_inner = 0.40;//DEBUG
+  undeadzone_inner = 1.0;//DEBUG
   undeadzone_outer = 0.0;//DEBUG
   virtual_scale = 1.0;//DEBUG
   unpower = 0.0;//DEBUG
   maxStickGameSpeed = 194;//DEBUG
-  gyro_sens = 1.0;//DEBUG
+  gyro_sens = 0.0;//DEBUG
   gyro_tight_threshold = 0.0;
   gyro_smooth_threshold = 500.0/25.0;
   
@@ -188,7 +187,7 @@ main {
       fix32 gyros = sqrt(sq(f_gX) + sq(f_gY) + sq(f_gZ));
       //Check for new values from sensor
       if (old_gyros != gyros) {
-
+        
         old_gyros = gyros;
         gX = GetRaw(f_gX);
         gY = GetRaw(f_gY);
@@ -233,14 +232,7 @@ main {
       set_val(STICK_1_X, undeadzone_inner * 100.0);
       
       //hack to help with finding max stick game speed
-      maxStickGameSpeed = blinkerSync();
-      //TODO move to function
-      static uint8 delayLog = 0;
-      delayLog++;
-      if (delayLog >= 75) {
-        printf("VIRTUAL_STICK_CALIBRATION %d", maxStickGameSpeed);
-        delayLog = 0;
-      }
+      if (!calibrating) maxStickGameSpeed = blinkerSync();
       
     } else if (gyro_output == 1) {
       set_val(STICK_1_X, gyroStickX * 100.0);
@@ -279,27 +271,59 @@ main {
   }
 }
 
-uint16 blink = 1000;
+#define B_S 4 //rolling average array size
 uint16 blinkerSync() {
-  //blink once every 1000ms
-  int32 blinkOff = blink - 50;
+  static uint16 blink = 1000;//start at 1 blink per 1000ms
   if (led_vmget(LED_1) == 0) {
-    led_vmset(LED_1, 50, blinkOff, 2);
+    led_vmset(LED_1, 50, blink - 50, 2);
   }
-  if (event_active(BUTTON_11)) { blink += 10; }//D-DOWN: interval 10ms slower
-  if (event_active(BUTTON_10)) { blink -= 10; }//D-UP: interval 10ms faster
-  if (event_active(BUTTON_12)) { blink += 100; }//D-LEFT: interval 100ms slower
-  if (event_active(BUTTON_13)) { blink -= 100; }//D-RIGHT: interval 100ms faster
-  
-  //South face button makes the interval start the moment the button is released  
-  if (event_active(BUTTON_16)) {
-    led_vmset(LED_1, 50, blinkOff, 2);
-    blink = (uint32)time_release(BUTTON_16);
+  if (event_active(BUTTON_12)) {//D-LEFT: interval 1ms longer
+    blink += 1;
+    printf("<br>Current interval: %dms<br>\
+    Suggested VIRTUAL_STICK_CALIBRATION: %d degrees/s", blink, 360000/blink);
   }
-  blink = clamp((int32)blink, 100, 2000);
+  if (event_active(BUTTON_13)) {//D-RIGHT: interval 1ms shorter
+    blink -= 1;
+    printf("<br>Current interval: %dms<br>\
+    Suggested VIRTUAL_STICK_CALIBRATION: %d degrees/s", blink, 360000/blink);
+  }
+  if (event_active(BUTTON_14)) {//North: reset phase
+    led_vmset(LED_1, 50, blink - 50, 2);
+    printf("<br>Blink phase reset.<br>\
+    Suggested VIRTUAL_STICK_CALIBRATION: %d degrees/s", 360000/blink);
+  }
+  if (event_active(BUTTON_16)) {//South: calculate rolling average
+    static uint16 lastTime = 0;
+    static uint16 timeDiff[B_S];//store B_S samples
+    static uint8 currentIndex = -1;
+    currentIndex = (currentIndex + 1) % B_S;
+    if (lastTime != 0) timeDiff[currentIndex] = (uint16)system_time() - lastTime;
+    lastTime = system_time();
+    uint8 i;
+    for (blink = i = 0; i < B_S; i++) {
+      blink += timeDiff[i];
+    }
+    blink /= B_S;
+    led_vmset(LED_1, 50, blink - 50, 2);//reset phase
+    printf("<br>Current interval (rolling average of 4): %dms (last 1: %dms)<br>\
+    Suggested VIRTUAL_STICK_CALIBRATION: %d degrees/s", blink, timeDiff[currentIndex], 360000/blink);
+  }
+  blink = clamp(blink, 100, 6000);
   
   return 360000 / blink;//returns degrees per second
 }
+
+/* live adjust of undeadzone inner
+if (event_active(BUTTON_11)) {//D-DOWN shrink undeadzone_inner
+undeadzone_inner = clamp(undeadzone_inner -0.01, 0.0, 1.0);
+printf("Current UNDEADZONE_INNER: %.2f", undeadzone_inner);
+}
+if (event_active(BUTTON_10)) {//D-UP grow undeadzone_inner
+undeadzone_inner = clamp(undeadzone_inner + 0.01, 0.0, 1.0);
+printf("Current UNDEADZONE_INNER: %.2f", undeadzone_inner);
+}
+*/
+
 
 //thanks to consoletuner discord member ME.
 int16 GetRaw(fix32 val) {
@@ -362,22 +386,22 @@ bool GYRO_OFF() {
 void processInput(uint32 deltaTime) {
   //calibrating
   if (calibrating) {
-    static uint16 counter = 0;
-    static int16 calibrationCounter = -1;
-    if (calibrationCounter == -1) pmem_read(51, &calibrationCounter);
+    static uint16 count = 0;
+    static int16 calibrationCount = -1;
+    if (calibrationCount == -1) pmem_read(51, &calibrationCount);
     offsetSamples++;
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
     accumulatedOffset[2] += gyroVelocity[2];
     const uint8 disp[] = { _0_, _1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, _G_};
-    if (counter % (calibrationCounter/10) == 0) {//exec on integer progress
-      if (led_vmget(LED_1) != -1) led_vmset(LED_1, 50, 250, -1);//blink blue
-      uint8 dispf = counter/(calibrationCounter/10);//0-10
+    if (count % (calibrationCount/10) == 0) {//exec on integer progress
+      if (led_vmget(LED_1) != -1) led_vmset(LED_3, 50, 250, -1);//blink green
+      uint8 dispf = count/(calibrationCount/10);//0-10
       display_overlay(disp[dispf], 1000);//0-10 on titantwo display
-      printf("<big><b>calibrating! %d%%", counter/(calibrationCounter/100));//0-100
+      printf("calibrating! %d%%", count/(calibrationCount/100));//0-100
     }
-    counter++;
-    if (counter > calibrationCounter) {
+    count++;
+    if (count > calibrationCount) {
       led_reset();
       led_vmset(LED_3, 50, 50, 10);
       calibrating = FALSE;
@@ -504,7 +528,6 @@ void getSmoothedInput(fix32 *avg) {
   static uint8 CurrentInputIndex = -1;
   CurrentInputIndex = (CurrentInputIndex + 1) % SMOOTH_BUFFER_SIZE;
   
-  fix32 buf;
   static fix32 InputBuffer0[SMOOTH_BUFFER_SIZE];
   static fix32 InputBuffer1[SMOOTH_BUFFER_SIZE];
   
