@@ -1,16 +1,9 @@
 #pragma METAINFO("LatencyTest", 1, 0, "aelius")
 #define SAMPLES 50 //if Titan reboots, this is too high
 
-
 #define _X GYRO_1_X
 #define _Y GYRO_1_Y
 #define _Z GYRO_1_Z
-
-
-#define _X STICK_2_X
-#define _Y STICK_2_Y
-#define _Z STICK_2_Y
-
 
 main {
   //True Hz detection thanks to consoletuner discord member ME.
@@ -19,7 +12,6 @@ main {
     static int16 accumLat[SAMPLES];
     static uint8 currentIndex = -1;
     static fix32 old;
-    int16 gX, gY, gZ;
     static int16 avg;
     fix32 f_X = get_actual(_X);
     fix32 f_Y = get_actual(_Y);
@@ -27,9 +19,6 @@ main {
     fix32 new = sqrt(sq(f_X) + sq(f_Y) + sq(f_Z));
     //Check for new values from sensor
     if (old != new) {
-      gX = GetRaw(f_X);
-      gY = GetRaw(f_Y);
-      gZ = GetRaw(f_Z);
       currentIndex = (currentIndex + 1) % SAMPLES;
       accumLat[currentIndex] = reportLatency;
       old = new;
@@ -49,8 +38,4 @@ main {
     }
     reportLatency++;//ms since last unique measurement, estimated Hz = 1000/ms
   }
-}
-
-int16 GetRaw(fix32 val) {
-  return (int16)ceil(lerp(-32768f, 32767f, -((val + 100f) / 200f)));
 }
