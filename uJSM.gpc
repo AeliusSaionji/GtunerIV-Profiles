@@ -16,7 +16,7 @@ END USER CUSTOMIZATION GUIDE - README
 -- And the XIM does see it!
 
 NOTES
-- The TitanTwo seems to map gyro data onto a range of 0.00-102.399994 rather than reporting angular velocity.
+- The TitanTwo maps gyro data onto a range of 0.00-102.399994 rather than reporting angular velocity.
 - Beware math functions which may exceed fix32 range (check calls to pythag)
 
 TODO
@@ -25,13 +25,16 @@ add world space as an option
 kalman 1d?
 in heavybullets, jsm roughly 2x as sensitive given same settings?
 document the blink timing thing
-dpad adjust for inner undeadzone & save
+possibly use blinkerSync to map joystick curve, predict UNPOWER setting
+finish liveAdjust()
+--write/save pmem
+--sens/speed/smooth/etc
+--currently flashes led for gyrosens 1; bad
 do the various sens functions still take accel into account?
 read out 'gyro' to seg disp
 add a config.h to include
 --gyro off needs to be configurable
 does override outer work for virtual_scale? It should.
-add report latency output, note that it's unused
 implement checks for calls that exceed data type (and definitely put the check in pythag)
 press start r2 r1 to start recalibrate combo
 revisit globally dividing gyro vals by -25
@@ -39,21 +42,20 @@ possibly leverage IC config memory for user presets
 xim specific axis fix?
 fix left stick output (hold)
 user configurable smoothing buffer size in IC?
-flickstick mouse
-flickstick joystick?
+flickstick
+--mouse
+--joystick
+--translate flickstick joystick hold to aim? feels like regular gyro aim cuts off too fast. check how jsm feels
 revisit winding flickstick
 --add haptic bump when leaving 0/deadzone
-on demand adjust of sens/speed/smooth/etc? and pmem_save
-per stick settings as per jsm
 optimize variables and memory usage
 --offsetSamples and the local count are SO SIMILAR
+--apply simpler if logic where possible (reference blinkerSync(), liveAdjust())
 the hacks rely on gyro_sens==0, which misses accel
 mouse_ring and mouse_area and scroll_wheel
 figure out why higher than 2ms kills cpu
+--implement function profiling
 validate accel sign against steam controller dsu
-translate flickstick joystick hold to aim? feels like regular gyro aim cuts off too fast. check how jsm feels
-adjust pointer in liveadj currently flashes led for gyrosens 1
-profiling
 */
 
 #include <mouse.gph>
@@ -336,21 +338,72 @@ void blinkerSync() {
 
 void liveAdjust() {
   static fix32 *adjustPtr = &gyro_sens;
-  //printf("ptr %d", adjustPtr);
   static uint8 clampHigh;
-  if (event_active(BUTTON_14)) {
-    adjustPtr = &undeadzone_inner;
-    clampHigh = 1;
-    printf("Adjusting UNDEADZONE_INNER",0);
-    printf("Current: %.2f", *adjustPtr);
+  static uint8 settingsIndex = 0;
+  //printf("ptr %d", adjustPtr);
+  if (event_active(BUTTON_16)) settingsIndex  = (settingsIndex  + 1) % 10;
+  switch (settingsIndex) {
+    case '0':
+      adjustPtr = &undeadzone_inner;
+      clampHigh = 1;
+      printf("Adjusting UNDEADZONE_INNER",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '1':
+      adjustPtr = &gyro_sens;
+      clampHigh = 10;
+      printf("Adjusting GYRO_SENS",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '2':
+      adjustPtr = &min_gyro_sens;
+      clampHigh = 10;
+      printf("Adjusting MIN_GYRO_SENS",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '3':
+      adjustPtr = &max_gyro_sens;
+      clampHigh = 10;
+      printf("Adjusting MAX_GYRO_SENS",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '4':
+      adjustPtr = &min_gyro_threshold;
+      clampHigh = 1000;
+      printf("Adjusting MIN_GYRO_THRESHOLD",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '5':
+      adjustPtr = &max_gyro_threshold;
+      clampHigh = 1000;
+      printf("Adjusting MAX_GYRO_THRESHOLD",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '6':
+      adjustPtr = &gyro_smooth_threshold;
+      clampHigh = 1000;
+      printf("Adjusting GYRO_SMOOTH_THRESHOLD",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '7':
+      adjustPtr = &gyro_tight_threshold;
+      clampHigh = 1000;
+      printf("Adjusting gyro_tight_threshold",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '8':
+      adjustPtr = &unpower;
+      clampHigh = 1000;
+      printf("Adjusting UNPOWER",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
+    case '9':
+      adjustPtr = &virtual_scale;
+      clampHigh = 1000;
+      printf("Adjusting VIRTUAL_SCALE",0);
+      printf("Current: %.2f", *adjustPtr);
+      break;
   }
-  if (event_active(BUTTON_15)) {
-    adjustPtr = &gyro_sens;
-    clampHigh = 10;
-    printf("Adjusting GYRO_SENS",0);
-    printf("Current: %.2f", *adjustPtr);
-  }
-  if (get_prev(BUTTON_16) && get_actual(BUTTON_16)) printf("16",0);
 
   int8 incPtr;
   if (incPtr =
@@ -657,7 +710,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
 
   // map gyro velocity to achievable range in 0-1
   fix32 gyroInStickStrength = targetGyroVelocity >= (fix32)maxStickGameSpeed ? 1.0 : targetGyroVelocity / (fix32)maxStickGameSpeed;
-  // unpower curve
+  // UNPOWER curve
   if (unpower != 0.0) {
     gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
   }
@@ -883,8 +936,8 @@ step = 0010
 group = true
 
 [Virtual Controller Stick Config]
-[RIGHT_STICK_UNDEADZONE_INNER]
-shortdesc = RIGHT_STICK_UNDEADZONE_INNER
+[UNDEADZONE_INNER]
+shortdesc = UNDEADZONE_INNER
 byteoffset = 61
 bitsize = 32
 bitoffset = 0
@@ -895,12 +948,12 @@ step = 005
 minimum = 000
 maximum = 100
 groupcol = true
-[SPACE RIGHT_STICK_UNDEADZONE_OUTER]
+[UNDEADZONE_OUTER]
 control = space
 default = 5
 group = true
-[RIGHT_STICK_UNDEADZONE_OUTER]
-shortdesc = RIGHT_STICK_UNDEADZONE_OUTER
+[UNDEADZONE_OUTER]
+shortdesc = UNDEADZONE_OUTER
 byteoffset = 65
 bitsize = 32
 bitoffset = 0
@@ -911,12 +964,12 @@ step = 005
 minimum = 000
 maximum = 100
 group = true
-[SPACE RIGHT_STICK_VIRTUAL_SCALE]
+[SPACE VIRTUAL_SCALE]
 control = space
 default = 25
 group = true
-[RIGHT_STICK_VIRTUAL_SCALE]
-shortdesc = RIGHT_STICK_VIRTUAL_SCALE
+[VIRTUAL_SCALE]
+shortdesc = VIRTUAL_SCALE
 byteoffset = 53
 bitsize = 32
 bitoffset = 0
@@ -927,12 +980,12 @@ minimum = 0001
 maximum = 1000
 step = 001
 group = true
-[SPACE RIGHT_STICK_UNPOWER]
+[SPACE UNPOWER]
 control = space
 default = 25
 group = true
-[RIGHT_STICK_UNPOWER]
-shortdesc = RIGHT_STICK_UNPOWER
+[UNPOWER]
+shortdesc = UNPOWER
 byteoffset = 57
 bitsize = 32
 bitoffset = 0
@@ -947,19 +1000,19 @@ group = true
 shortdesc = Prevent game deadzone from interfering with gyro aim
 control = info
 groupcol = true
-[SPACE mini info virtualscale]
+[SPACE mini info virtual_scale]
 control = space
 default = 60
 group = true
-[mini info virtualscale]
+[mini info virtual_scale]
 shortdesc = Scale virtual stick output
 control = info
 group = true
-[SPACE mini info unpower]
+[SPACE mini info UNPOWER]
 control = space
 default = 25
 group = true
-[mini info unpower]
+[mini info UNPOWER]
 shortdesc = Counter game power curve
 control = info
 group = true
