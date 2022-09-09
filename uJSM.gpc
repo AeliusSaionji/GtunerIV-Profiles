@@ -81,12 +81,12 @@ uint32 profileAccum;
 
 //Settings with initial defaults
 const uint8 gyro_output = 1; //0:mouse, 1:right stick, 2:left stick
-const uint8 gyro_space = '0';//0:LOCAL, 1:PLAYER_TURN
 const uint8 outProtocol = 0;
 const bool calibrating = TRUE;
 const bool outerStickOverride = TRUE;
 const bool stickDisable = FALSE;
 const bool winding = FALSE;
+uint8 gyro_space = '0';//0:LOCAL, 1:PLAYER_TURN
 uint16 maxStickGameSpeed = 360;
 fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
@@ -104,7 +104,7 @@ fix32 max_gyro_threshold = 0.0;
 
 init {
   pmem_load();
-  
+
   //uint8 only
   gyro_output        = pmem_read(0);
   gyro_space         = pmem_read(5);
@@ -130,7 +130,7 @@ init {
   max_gyro_threshold /= 25.0;//such that they correspond to angular velocity
   gyro_tight_threshold /= 25.0;//(using same number as accel normalized to grav)
   gyro_smooth_threshold /= 25.0;
-  
+
   switch (outProtocol) {
     case 1:  port_connect(PORT_USB_C, PROTOCOL_AUTO);   break;
     case 2:  port_connect(PORT_USB_C, PROTOCOL_PS4);    break;
@@ -145,7 +145,7 @@ init {
     case 11: port_connect(PORT_BT_C,  PROTOCOL_WII);    break;
     default: break;
   }
-  
+
   if (DEBUG) {
     LOGGING = FALSE;
     gyro_output = 1;
@@ -190,9 +190,9 @@ main {
       }
     }
   }
-  
+
   if (configMode) liveAdjust();
-  
+
   static uint8 delay;
   delay += (uint8)elapsed_time();
   if (delay >= 2) {//loop 500Hz fastest, or Titan will be sad
@@ -222,13 +222,13 @@ main {
     //gyroVelocity[0] = (fix32)gZ/-25.0;//On first blush, divide by 25 seems close to degrees/s.
     //gyroVelocity[1] = (fix32)gX/-25.0;//That would make sense, because 
     //gyroVelocity[2] = (fix32)gY/-25.0;//it would be in line with accel
-    
+
     //Process input on regular intervals regardless of dupes
     if (!calibrating) processInput();//"only unique samples" probably just negates titan's internal deltaTime
     if (gyro_output == 1) {//Right stick
-      
+
       if (winding) flickRotate();
-      
+
       //Logic from JSM operates on a scale of 0-1
       if (processGyroStick(get_val(STICK_1_X)/100.0, get_val(STICK_1_Y)/100.0)) {} //returns a bool
     }
@@ -238,18 +238,18 @@ main {
     }
     delay = 0;
   }
-  
+
   //set_val must be outside the polling loop!
   //lest values bounce back to 0 every cycle
-  
+
   if  (gyro_output) {
     if ((min_gyro_sens == 0.0 && max_gyro_sens == 0.0) && gyro_output == 1) {
       //hack to help with finding deadzones more quickly
       set_val(STICK_1_X, undeadzone_inner * 100.0);
-      
+
       //hack to help with finding max stick game speed
       if (!calibrating && !configMode) blinkerSync();
-      
+
     } else if (gyro_output == 1) {
       set_val(STICK_1_X, gyroStickX * 100.0);
       set_val(STICK_1_Y, gyroStickY * 100.0);
@@ -273,7 +273,7 @@ main {
       }
     } else if (outerStickOverride == TRUE && winding == TRUE) flickRotate2();
   }
-  
+
   if (gyro_output == 0) {//mouse
     processMouse(camera[0], camera[1]);
     //Controller is still passed as a joystick in HID output, it may be active
@@ -298,7 +298,7 @@ void blinkerSync() {
   if (led_vmget(LED_1) == 0) {
     led_vmset(LED_1, 50, blinkHz - 50, 2);
   }
-  
+
   int8 incHz;
   if (incHz =
   (event_active(BUTTON_10) ? -10 : 0) +//D-UP: faster
@@ -330,7 +330,7 @@ void blinkerSync() {
     printf("<br>Current interval (rolling average of 4): %dms (last 1: %dms)<br>\
     Suggested VIRTUAL_STICK_CALIBRATION: %d degrees/s", blinkHz, timeDiff[currentIndex], 360000/blinkHz);
   }
-  
+
   maxStickGameSpeed = 360000 / clamp(blinkHz, 100, 6000);//degrees per second
   if (event_active(BUTTON_3)) {//START,+,SHARE, whathaveyou button
     pmem_write(9, maxStickGameSpeed);
@@ -429,7 +429,7 @@ void liveAdjust() {
       }
     }
   }
-  
+
   int8 incPtr;
   if (incPtr =
   (event_active(BUTTON_10) ?  10 : 0) +
@@ -448,7 +448,7 @@ void liveAdjust() {
     printf("Current: %.2f", *adjustPtr);
     if (*adjustPtr == 0.0 || *adjustPtr == (fix32)clampHigh) led_vmset(LED_2, 50, 50, 10);
   }
-  
+
   if (event_active(BUTTON_15)) {//East
     //reload setting stored from pmem
     pmem_read(memOffset, adjustPtr);
@@ -552,7 +552,7 @@ void processInput() {
       calibrating = FALSE;
     }
   }
-  
+
   gyroCalibration[0] = getCalibrationOffset(0);
   gyroCalibration[1] = getCalibrationOffset(1);
   gyroCalibration[2] = getCalibrationOffset(2);
@@ -563,22 +563,22 @@ void processInput() {
   //Zptr = &calibratedGyro[0];
   //Xptr = &calibratedGyro[1];
   //Yptr = &calibratedGyro[2];
-  
-  
+
+
   //smoothing (from wiki)
   if (gyro_smooth_threshold > 0.0) {
     getTieredSmoothedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_smooth_threshold/2.0, gyro_smooth_threshold);
   }
-  
+
   //cutoff/recovery... and maybe the jsm smoothing
   //calibratedGyro[0] = smoothJSM0(calibratedGyro[0], calibratedGyro[1], 0.0, 0.000001);
   //calibratedGyro[1] = smoothJSM1(calibratedGyro[0], calibratedGyro[1], 0.0, 0.000001);
-  
+
   //tightening
   if (gyro_tight_threshold > 0.0) {
     getTightenedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_tight_threshold);
   }
-  
+
   //accelerating
   if (min_gyro_sens != max_gyro_sens) {
     processGyroAccel(calibratedGyro[0], calibratedGyro[1], calibratedGyro[2],
@@ -624,7 +624,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
       //TODO
       break;
     }
-    
+
     if (GYRO_OFF()) camera[0] = camera[1] = 0.0;
   }
 }
@@ -686,13 +686,13 @@ combo recalibrate {
 void getSmoothedInput(fix32 *avg) {
   static uint8 CurrentInputIndex = -1;
   CurrentInputIndex = (CurrentInputIndex + 1) % SMOOTH_BUFFER_SIZE;
-  
+
   static fix32 InputBuffer0[SMOOTH_BUFFER_SIZE];
   static fix32 InputBuffer1[SMOOTH_BUFFER_SIZE];
-  
+
   InputBuffer0[CurrentInputIndex] = avg[0];
   InputBuffer1[CurrentInputIndex] = avg[1];
-  
+
   uint8 i;
   for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
     avg[0] += InputBuffer0[i];
@@ -751,43 +751,43 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   if (unpower == 0.0) {
     unpower = 1.0;
   }
-  
+
   fix32 stickVelocity = pow(clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower) * (fix32)maxStickGameSpeed * virtual_scale;
   fix32 expectedX = 0.0;
   fix32 expectedY = 0.0;
   gyroStickX = 0.0;
   gyroStickY = 0.0;
-  
+
   if (stickVelocity > 0.0) {
     expectedX = (stickX / stickLength) * stickVelocity;
     expectedY = (stickY / stickLength) * stickVelocity;
   }
-  
+
   //The original JSM function translates in-game turn velocity into units equivalent
   //to real world turn velocity, because a gyroscope reports real velocity.
   //TitanTwo reports everything including gyro on a scale of -100 to 100, so we need to work around this.
   expectedX += camera[0]*3.6; //the gyro readings top out at roughly 100.
   expectedY += camera[1]*3.6; //100 * 3.6 = 360.
-  
+
   fix32 targetGyroVelocity = pythag(expectedX/100.0, expectedY/100.0) * 100.0; //sq(expected) exceeds fix32 range, oops!
-  
+
   // map gyro velocity to achievable range in 0-1
   fix32 gyroInStickStrength = targetGyroVelocity >= (fix32)maxStickGameSpeed ? 1.0 : targetGyroVelocity / (fix32)maxStickGameSpeed;
   // UNPOWER curve
   if (unpower != 0.0) {
     gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
   }
-  
+
   // remap to between inner and outer deadzones
   if (gyroInStickStrength > 0.010) {
     gyroInStickStrength = undeadzone_inner + gyroInStickStrength * livezoneSize;
     gyroStickX = (expectedX / targetGyroVelocity) * gyroInStickStrength;
     gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
   }
-  
+
   if (LOGGING) logger(camera[0], camera[1], stickX, stickY, stickLength, stickVelocity, expectedX,
   expectedY, targetGyroVelocity, gyroInStickStrength, gyroStickX, gyroStickY);
-  
+
   return stickLength > undeadzone_inner;
 }
 
