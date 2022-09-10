@@ -20,8 +20,9 @@ NOTES
 
 TODO
 GYRO_SENS X Y
-add player lean player space
-add world space as an option
+if max_sens is zero, default to no accel
+examine jsm's local space
+player lean and world spaces are not done
 kalman 1d?
 in heavybullets, jsm roughly 2x as sensitive given same settings?
 document the blink timing thing
@@ -431,13 +432,14 @@ void liveAdjust() {
   }
 
   int8 incPtr;
+  int8 *spacePtr = &gyro_space;//need to match ptr type?
   if (incPtr =
   (event_active(BUTTON_10) ?  10 : 0) +
   (event_active(BUTTON_11) ? -10 : 0) +
   (event_active(BUTTON_12) ?  -1 : 0) +
   (event_active(BUTTON_13) ?   1 : 0)) {
     if (adjustPtr == &gyro_space) {
-      int8 *spacePtr = &gyro_space;//need to match ptr type?
+      spacePtr = &gyro_space;
       const char *spaceOpts[] = { "LOCAL", "PLAYER_TURN", "PLAYER_LEAN", "WORLD_TURN", "WORLD_LEAN"};
       *spacePtr = incPtr >= 0 ? (*spacePtr + 1) % 5 : *spacePtr;//Usual circular mod logic
       *spacePtr = incPtr <= 0 ? (*spacePtr + 4) % 5 : *spacePtr;//same logic in reverse
@@ -445,12 +447,18 @@ void liveAdjust() {
       return;
     }
     *adjustPtr = clamp(*adjustPtr + (fix32)incPtr/(fix32)incDiv, 0.0, (fix32)clampHigh);
+    *adjustPtr = round(*adjustPtr*100.0)/100.0;//shave off thousands values that mysteriously appear
     printf("Current: %.2f", *adjustPtr);
     if (*adjustPtr == 0.0 || *adjustPtr == (fix32)clampHigh) led_vmset(LED_2, 50, 50, 10);
   }
 
   if (event_active(BUTTON_15)) {//East
     //reload setting stored from pmem
+    if (adjustPtr == &gyro_space) {
+      pmem_read(memOffset, spacePtr);
+      printf("Reverted to initial value.", 0);
+      return;
+    }
     pmem_read(memOffset, adjustPtr);
     printf("Reverted to initial value: %.2f", *adjustPtr);
   }
@@ -594,39 +602,134 @@ void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, fix32 calibr
 fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
   // gyro: 012 == z x y == yaw pitch roll
   // accel: 012 == z x y == ???
-  switch (gyro_space) {
-    case 0: {//LOCAL
-      camera[0] = calibratedGyro0 * gyroSensitivity;
-      camera[1] = calibratedGyro1 * gyroSensitivity;
-      break;
-    }
-    case 1: {//PLAYER_TURN (from JSM)
-      // use world yaw for yaw direction, local combined yaw for magnitude
-      fix32 worldYaw = calibratedGyro2 * accelGrav2 + calibratedGyro0 * accelGrav0; // dot product but just yaw and roll
-      fix32 worldYawSign = worldYaw < 0.0 ? -1.0 : 1.0;
-      fix32 yawRelaxFactor = 2.0;
-      camera[0] = worldYawSign
-      * min(abs(worldYaw) * yawRelaxFactor, pythag(calibratedGyro2, calibratedGyro0))
-      * gyroSensitivity;
-      // player space still uses local pitch:
-      camera[1] = calibratedGyro1 * gyroSensitivity;
-      break;
-    }
-    case 2: {//PLAYER_LEAN (from JSM)
-      //TODO
-      break;
-    }
-    case 3: {//WOLD_TURN
-      //TODO
-      break;
-    }
-    case 4: {//WORLD_LEAN
-      //TODO
-      break;
+  if (gyro_space == 0) {//LOCAL
+    camera[0] = calibratedGyro0 * gyroSensitivity;
+    camera[1] = calibratedGyro1 * gyroSensitivity;
+  } else {//prep for player space and world space
+    fix32 gravLength = sqrt(sq(accelGrav1) + sq(accelGrav2) + sq(accelGrav0));//do lines like this need to be alone to update?
+    fix32 normGravX = 0.0;
+    fix32 normGravY = 0.0;
+    fix32 normGravZ = 0.0;
+    if (gravLength > 0.0) {
+      fix32 gravNormalizer = 1.0 / gravLength;
+      normGravX = accelGrav1 * gravNormalizer;
+      normGravY = accelGrav2 * gravNormalizer;
+      normGravZ = accelGrav0 * gravNormalizer;
     }
 
-    if (GYRO_OFF()) camera[0] = camera[1] = 0.0;
+    fix32 flatness = abs(normGravY);
+    fix32 upness = abs(normGravZ);
+    fix32 sideReduction = clamp((max(flatness, upness) - 0.125) / 0.125, 0.0, 1.0);
+    //parade of variables where GPC compiler hates what JSM source does
+    fix32 worldYaw, gravDotPitchAxis, pitchAxisX, pitchAxisY, pitchAxisZ, pitchAxisLengthSquared,
+    lengthReciprocal, rollAxisX, rollAxisY, rollAxisZ, rollAxisLengthSquared, rollAxisLength;
+
+    if (gyro_space == 1 || gyro_space == 2) {
+      if (gyro_space == 1) {//PLAYER_TURN (from JSM)
+        // use world yaw for yaw direction, local combined yaw for magnitude
+        worldYaw = calibratedGyro2 * normGravY + calibratedGyro0 * normGravZ; // dot product but just yaw and roll
+        fix32 worldYawSign = worldYaw < 0.0 ? -1.0 : 1.0;
+        const fix32 yawRelaxFactor = 2.0; // 60 degree buffer
+        //const fix32 yawRelaxFactor = 1.41; // 45 degree buffer
+        //const fix32 yawRelaxFactor = 1.15; // 30 degree buffer
+        camera[0] = worldYawSign
+        * min(abs(worldYaw) * yawRelaxFactor, pythag(calibratedGyro2, calibratedGyro0))
+        * gyroSensitivity;
+      } else {//PLAYER_LEAN (from JSM)
+        // project local pitch axis (X) onto gravity plane
+        // super simple since our point is only non-zero in one axis
+        gravDotPitchAxis = normGravX;
+        pitchAxisX = 1.0 - normGravX * gravDotPitchAxis;
+        pitchAxisY = -normGravY * gravDotPitchAxis;
+        pitchAxisZ = -normGravZ * gravDotPitchAxis;
+        // normalize
+        pitchAxisLengthSquared = pitchAxisX * pitchAxisX + pitchAxisY * pitchAxisY + pitchAxisZ * pitchAxisZ;
+        if (pitchAxisLengthSquared > 0.0) {
+          // world roll axis is cross (yaw, pitch)
+          rollAxisX = pitchAxisY * normGravZ - pitchAxisZ * normGravY;
+          rollAxisY = pitchAxisZ * normGravX - pitchAxisX * normGravZ ;
+          rollAxisZ = pitchAxisX * normGravY - pitchAxisY * normGravX;
+
+          // normalize
+          rollAxisLengthSquared = rollAxisX * rollAxisX + rollAxisY * rollAxisY + rollAxisZ * rollAxisZ;
+          if (rollAxisLengthSquared > 0.0) {
+            rollAxisLength = sqrt(rollAxisLengthSquared);
+            lengthReciprocal = 1.0 / rollAxisLength;
+            rollAxisX *= lengthReciprocal;
+            rollAxisY *= lengthReciprocal;
+            rollAxisZ *= lengthReciprocal;
+
+            fix32 worldRoll = rollAxisY * calibratedGyro2 + rollAxisZ * calibratedGyro0;
+            fix32 worldRollSign = worldRoll < 0.0 ? -1.0 : 1.0;
+            //const fix32 rollRelaxFactor = 2.0; // 60 degree buffer
+            const fix32 rollRelaxFactor = 1.41; // 45 degree buffer
+            //const fix32 rollRelaxFactor = 1.15; // 30 degree buffer
+            camera[0] = worldRollSign * min(abs(worldRoll) * rollRelaxFactor, pythag(calibratedGyro2, calibratedGyro0));
+            camera[0] *= sideReduction;
+          }
+        }
+      }
+      camera[1] = calibratedGyro1 * gyroSensitivity;//player space still uses local pitch
+
+    } else {//WORLD_TURN or WORLD_LEAN (from JSM)
+      //prep for world space
+
+      // grav dot gyro axis
+      worldYaw = normGravX * calibratedGyro1 + normGravY * calibratedGyro2 + normGravZ * calibratedGyro0;
+      // project local pitch axis (X) onto gravity plane
+      // super simple since our point is only non-zero in one axis
+      gravDotPitchAxis = normGravX;
+      pitchAxisX = 1.0 - normGravX * gravDotPitchAxis;
+      pitchAxisY = -normGravY * gravDotPitchAxis;
+      pitchAxisZ = -normGravZ * gravDotPitchAxis;
+      // normalize
+      pitchAxisLengthSquared = pitchAxisX * pitchAxisX + pitchAxisY * pitchAxisY + pitchAxisZ * pitchAxisZ;
+      if (pitchAxisLengthSquared > 0.0) {
+        fix32 pitchAxisLength = sqrt(pitchAxisLengthSquared);
+        lengthReciprocal = 1.0 / pitchAxisLength;
+        pitchAxisX *= lengthReciprocal;
+        pitchAxisY *= lengthReciprocal;
+        pitchAxisZ *= lengthReciprocal;
+
+        // get global pitch factor (dot)
+        camera[1] = -(pitchAxisX * calibratedGyro1 + pitchAxisY * calibratedGyro2 + pitchAxisZ * calibratedGyro);
+        // by the way, pinch it towards the nonsense limit
+        camera[1] *= sideReduction;
+
+        if (gyro_space == 4)//WORLD_LEAN
+        {
+          // world roll axis is cross (yaw, pitch)
+          rollAxisX = pitchAxisY * normGravZ - pitchAxisZ * normGravY;
+          rollAxisY = pitchAxisZ * normGravX - pitchAxisX * normGravZ;
+          rollAxisZ = pitchAxisX * normGravY - pitchAxisY * normGravX;
+
+          // normalize
+          rollAxisLengthSquared = rollAxisX * rollAxisX + rollAxisY * rollAxisY + rollAxisZ * rollAxisZ;
+          if (rollAxisLengthSquared > 0.0)
+          {
+            rollAxisLength = sqrt(rollAxisLengthSquared);
+            lengthReciprocal = 1.0 / rollAxisLength;
+            rollAxisX *= lengthReciprocal;
+            rollAxisY *= lengthReciprocal;
+            rollAxisZ *= lengthReciprocal;
+
+            // get global roll factor (dot)
+            camera[0] = rollAxisX * calibratedGyro1 + rollAxisY * calibratedGyro2 + rollAxisZ * calibratedGyro0;
+            // by the way, pinch because we rely on a good pitch vector here
+            camera[0] *= sideReduction;
+          }
+        }
+      }
+
+      if (gyro_space == 3) {//WORLD_TURN
+        camera[0] = worldYaw;
+      }
+
+
+    }
   }
+
+  if (GYRO_OFF()) camera[0] = camera[1] = 0.0;
 }
 
 //accel
