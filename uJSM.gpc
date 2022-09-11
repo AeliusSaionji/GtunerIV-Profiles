@@ -20,10 +20,9 @@ NOTES
 
 TODO
 GYRO_SENS X Y
-why did pythag cause a flip in world space
+why did pythag cause a flip in world(?) space
 why do I have a mystery pitch axis flip in world space
 if max_sens is zero, default to no accel
-examine jsm's local space
 kalman 1d?
 in heavybullets, jsm roughly 2x as sensitive given same settings?
 document the blink timing thing
@@ -614,35 +613,34 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
     fix32 normGravY = 0.0;
     fix32 normGravZ = 0.0;
     if (gravLength > 0.0) {//accel on a scale of -1:1
-      fix32 gravNormalizer = 1.0 / gravLength;
-      normGravY = accelGrav0 * gravNormalizer;
-      normGravX = accelGrav1 * gravNormalizer;
-      normGravZ = accelGrav2 * gravNormalizer;
+      normGravY = accelGrav0 * (1.0 / gravLength);
+      normGravX = accelGrav1 * (1.0 / gravLength);
+      normGravZ = accelGrav2 * (1.0 / gravLength);
     }
-
     fix32 flatness = abs(normGravY);
     fix32 upness = abs(normGravZ);
     fix32 sideReduction = clamp((max(flatness, upness) - 0.125) / 0.125, 0.0, 1.0);
     //parade of variables where GPC compiler hates what JSM source does
-    fix32 worldYaw, gravDotPitchAxis, pitchAxisX, pitchAxisY, pitchAxisZ, pitchAxisLengthSquared,
-    lengthReciprocal, rollAxisX, rollAxisY, rollAxisZ, rollAxisLengthSquared, rollAxisLength;
+    fix32 worldYaw, pitchAxisX, pitchAxisY, pitchAxisZ, pitchAxisLengthSquared,
+    rollAxisX, rollAxisY, rollAxisZ, rollAxisLengthSquared;
+    #define gravDotPitchAxis normGravX//shave off a fix32 via macro
 
     if (gyro_space == 1 || gyro_space == 2) {
       if (gyro_space == 1) {//PLAYER_TURN (from JSM)
-        // use world yaw for yaw direction, local combined yaw for magnitude
-        worldYaw = -(normGravY * calibratedGyro0//sign flip appeases myster GPC wrath
-        + normGravZ * calibratedGyro2); // dot product but just yaw and roll
-        fix32 worldYawSign = worldYaw < 0.0 ? -1.0 : 1.0;
-        const fix32 yawRelaxFactor = 2.0; // 60 degree buffer
+        // grav dot gyro axis (but only Y (yaw) and Z (roll))
+        worldYaw = -(normGravY * calibratedGyro0
+        + normGravZ * calibratedGyro2);//sign flip appeases mystery GPC wrath
+        int8 worldYawSign = worldYaw < 0.0 ? -1 : 1;
+        #define yawRelaxFactor 2.0//shave off a fix32 via macro
+        //const fix32 yawRelaxFactor = 2.0; // 60 degree buffer
         //const fix32 yawRelaxFactor = 1.41; // 45 degree buffer
         //const fix32 yawRelaxFactor = 1.15; // 30 degree buffer
-        camera[0] = worldYawSign
+        camera[0] = (fix32)worldYawSign
         * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)))
         * gyroSensitivity;
       } else {//PLAYER_LEAN (from JSM)
         // project local pitch axis (X) onto gravity plane
         // super simple since our point is only non-zero in one axis
-        gravDotPitchAxis = normGravX;
         pitchAxisX = 1.0 - normGravX * gravDotPitchAxis;
         pitchAxisY = -normGravY * gravDotPitchAxis;
         pitchAxisZ = -normGravZ * gravDotPitchAxis;
@@ -651,24 +649,23 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         if (pitchAxisLengthSquared > 0.0) {
           // world roll axis is cross (yaw, pitch)
           rollAxisX = pitchAxisY * normGravZ - pitchAxisZ * normGravY;
-          rollAxisY = pitchAxisZ * normGravX - pitchAxisX * normGravZ ;
+          rollAxisY = pitchAxisZ * normGravX - pitchAxisX * normGravZ;
           rollAxisZ = pitchAxisX * normGravY - pitchAxisY * normGravX;
 
           // normalize
           rollAxisLengthSquared = sq(rollAxisX) + sq(rollAxisY) + sq(rollAxisZ);
           if (rollAxisLengthSquared > 0.0) {
-            rollAxisLength = sqrt(rollAxisLengthSquared);
-            lengthReciprocal = 1.0 / rollAxisLength;
-            rollAxisX *= lengthReciprocal;
-            rollAxisY *= lengthReciprocal;
-            rollAxisZ *= lengthReciprocal;
+            rollAxisX *= 1.0 / sqrt(rollAxisLengthSquared);//lengthReciprocal
+            rollAxisY *= 1.0 / sqrt(rollAxisLengthSquared);//lengthReciprocal
+            rollAxisZ *= 1.0 / sqrt(rollAxisLengthSquared);//lengthReciprocal
 
             fix32 worldRoll = rollAxisY * calibratedGyro0 + rollAxisZ * calibratedGyro2;
-            fix32 worldRollSign = worldRoll < 0.0 ? -1.0 : 1.0;
+            int8 worldRollSign = worldRoll < 0.0 ? -1 : 1;
+            #define rollRelaxFactor 1.41 //shave off a fix32 via macro
             //const fix32 rollRelaxFactor = 2.0; // 60 degree buffer
-            const fix32 rollRelaxFactor = 1.41; // 45 degree buffer
+            //const fix32 rollRelaxFactor = 1.41; // 45 degree buffer
             //const fix32 rollRelaxFactor = 1.15; // 30 degree buffer
-            camera[0] = worldRollSign
+            camera[0] = (fix32)worldRollSign
             * min(abs(worldRoll) * rollRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));
             camera[0] *= sideReduction;
           }
@@ -678,23 +675,19 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
 
     } else {//WORLD_TURN or WORLD_LEAN (from JSM)
       //prep for world space
-
       // grav dot gyro axis
       worldYaw = normGravX * calibratedGyro1 + normGravY * calibratedGyro0 + normGravZ * calibratedGyro2;
       // project local pitch axis (X) onto gravity plane
       // super simple since our point is only non-zero in one axis
-      gravDotPitchAxis = normGravX;
       pitchAxisX = 1.0 - normGravX * gravDotPitchAxis;
       pitchAxisY = -normGravY * gravDotPitchAxis;
       pitchAxisZ = -normGravZ * gravDotPitchAxis;
       // normalize
       pitchAxisLengthSquared = sq(pitchAxisX) + sq(pitchAxisY) + sq(pitchAxisZ);
       if (pitchAxisLengthSquared > 0.0) {
-        fix32 pitchAxisLength = sqrt(pitchAxisLengthSquared);
-        lengthReciprocal = 1.0 / pitchAxisLength;
-        pitchAxisX *= lengthReciprocal;
-        pitchAxisY *= lengthReciprocal;
-        pitchAxisZ *= lengthReciprocal;
+        pitchAxisX *= 1.0 / sqrt(pitchAxisLengthSquared);//lengthReciprocal
+        pitchAxisY *= 1.0 / sqrt(pitchAxisLengthSquared);//lengthReciprocal
+        pitchAxisZ *= 1.0 / sqrt(pitchAxisLengthSquared);//lengthReciprocal
 
         // get global pitch factor (dot)
         camera[1] = +(pitchAxisX * calibratedGyro1
@@ -711,13 +704,10 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
 
           // normalize
           rollAxisLengthSquared = sq(rollAxisX) + sq(rollAxisY) + sq(rollAxisZ);
-          if (rollAxisLengthSquared > 0.0)
-          {
-            rollAxisLength = sqrt(rollAxisLengthSquared);
-            lengthReciprocal = 1.0 / rollAxisLength;
-            rollAxisX *= lengthReciprocal;
-            rollAxisY *= lengthReciprocal;
-            rollAxisZ *= lengthReciprocal;
+          if (rollAxisLengthSquared > 0.0) {
+            rollAxisX *= 1.0 / sqrt(rollAxisLengthSquared);//lengthReciprocal
+            rollAxisY *= 1.0 / sqrt(rollAxisLengthSquared);//lengthReciprocal
+            rollAxisZ *= 1.0 / sqrt(rollAxisLengthSquared);//lengthReciprocal
 
             // get global roll factor (dot)
             camera[0] = rollAxisX * calibratedGyro1
