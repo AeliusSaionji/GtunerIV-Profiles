@@ -630,14 +630,14 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
     if (gyro_space == 1 || gyro_space == 2) {
       if (gyro_space == 1) {//PLAYER_TURN (from JSM)
         // use world yaw for yaw direction, local combined yaw for magnitude
-        worldYaw = normGravY * calibratedGyro0
-        + normGravZ * calibratedGyro2; // dot product but just yaw and roll
+        worldYaw = -(normGravY * calibratedGyro0//sign flip appeases myster GPC wrath
+        + normGravZ * calibratedGyro2); // dot product but just yaw and roll
         fix32 worldYawSign = worldYaw < 0.0 ? -1.0 : 1.0;
         const fix32 yawRelaxFactor = 2.0; // 60 degree buffer
         //const fix32 yawRelaxFactor = 1.41; // 45 degree buffer
         //const fix32 yawRelaxFactor = 1.15; // 30 degree buffer
         camera[0] = worldYawSign
-        * min(abs(worldYaw) * yawRelaxFactor, pythag(calibratedGyro0, calibratedGyro2))
+        * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)))
         * gyroSensitivity;
       } else {//PLAYER_LEAN (from JSM)
         // project local pitch axis (X) onto gravity plane
@@ -697,9 +697,9 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         pitchAxisZ *= lengthReciprocal;
 
         // get global pitch factor (dot)
-        camera[1] = pitchAxisX * calibratedGyro1
+        camera[1] = +(pitchAxisX * calibratedGyro1
         + pitchAxisY * calibratedGyro0
-        + pitchAxisZ * calibratedGyro2;//removed negative because mystery axis flip
+        + pitchAxisZ * calibratedGyro2);//sign flip appeases mystery GPC wrath
         // by the way, pinch it towards the nonsense limit
         camera[1] *= sideReduction;
 
@@ -730,7 +730,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
       }
 
       if (gyro_space == 3) {//WORLD_TURN
-        camera[0] = worldYaw;
+        camera[0] = -(worldYaw);//sign flip appeases mystery GPC wrath
       }
     }
   }
