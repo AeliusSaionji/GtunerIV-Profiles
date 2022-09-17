@@ -3,7 +3,7 @@
 /*
 
 END USER CUSTOMIZATION GUIDE - README
-* Create a mapping for GYRO_OFF = TRUE to ratchet the controller.
+* Create a mapping for GYRO_OFF() to ratchet the controller.
 -- if (is_active(yourbutton)) {GYRO_OFF();}
 * Initiate a recalibration with combo_run(recalibrate).
 -- You may need to do this periodically.
@@ -59,6 +59,10 @@ mouse_ring and mouse_area and scroll_wheel
 figure out why higher than 2ms kills cpu
 --implement function profiling
 validate accel sign against steam controller dsu
+check that += camera is really not necessary
+removed the "gyro on while joystick held" code, needs to be readded
+logger needs variable argument list length
+make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
 */
 
 #include <mouse.gph>
@@ -79,9 +83,11 @@ fix32 gyroStickX;
 fix32 gyroStickY;
 bool configMode = FALSE;
 const bool DEBUG = TRUE;
-bool LOGGING = TRUE;
-const bool PROFILE = TRUE;
+bool LOGGING = FALSE;
+const bool PROFILE = FALSE;
 uint32 profileAccum;
+uint8 ERR;
+bool gyroBlocked;
 
 //Settings with initial defaults
 const uint8 gyro_output = 1; //0:mouse, 1:right stick, 2:left stick
@@ -171,7 +177,7 @@ init {
 }
 
 main {
-  if (TRUE) {
+  if (DEBUG) {
     //temp binds for testing
     if (is_active(BUTTON_4)) {
       mouse_set(MBUTTON_1, TRUE);
@@ -183,16 +189,20 @@ main {
     } else if (is_release(BUTTON_5)) {
       key_set(KEY_SPACEBAR, FALSE);
     }
-    if (is_active(BUTTON_4) && event_active(BUTTON_7) && (abs(get_actual(ACCEL_1_Z)) < 3.0)) {
-      configMode = configMode ? FALSE : TRUE;
-      if (configMode) {
-        ffb_set(FFB_1, 100.0, 50);
-        printf("Entered live config",0);
-      } else {
-        ffb_set(FFB_2, 100.0, 250);
-        printf("Exited live config & saved settings",0);
-        commitSettings();
-      }
+    if (is_active(BUTTON_15)) GYRO_OFF(TRUE);
+    else GYRO_OFF(FALSE);
+  }
+
+  //Bind to enter config mode
+  if (is_active(BUTTON_4) && event_active(BUTTON_7) && (abs(get_actual(ACCEL_1_Z)) < 3.0)) {
+    configMode = configMode ? FALSE : TRUE;
+    if (configMode) {
+      ffb_set(FFB_1, 100.0, 50);
+      printf("Entered live config",0);
+    } else {
+      ffb_set(FFB_2, 100.0, 250);
+      printf("Exited live config & saved settings",0);
+      commitSettings();
     }
   }
 
@@ -350,7 +360,6 @@ void liveAdjust() {
   static uint8 incDiv;
   static uint8 settingsIndex = 0;
   static uint8 memOffset = 26;
-  //printf("ptr %d", adjustPtr);//DEBUG
   if (event_active(BUTTON_16)) {//South
     settingsIndex  = (settingsIndex  + 1) % 10;
     switch (settingsIndex) {
@@ -511,7 +520,7 @@ void flickRotate() {
   //flick-rotate logic
   fix32 x = get_actual(STICK_1_X);
   fix32 y = get_actual(STICK_1_Y);
-  fix32 length = pythag(x,y);
+  fix32 length = pythag(x, y);
   fix32 lengthRad = atan2(x, -y) / PI * 100.0;
   //unwrap = lengthRad - round((lengthRad - unwrap) / 200.0)*200.0;//LUNS
   //if (abs(unwrap) > 150.0) unwrap = lengthRad;
@@ -537,11 +546,15 @@ void flickRotate2() {
   }
 }
 
-bool GYRO_OFF() {
-  if (is_active(STICK_1_X) || is_active(STICK_1_Y)) {
-    return FALSE;
-  } 
-  return FALSE;
+void GYRO_OFF(bool val) {
+  if (val) gyroBlocked = TRUE;
+  else gyroBlocked = FALSE;
+  //accelGrav[0] = get_actual(ACCEL_1_Z);
+  //accelGrav[1] = get_actual(ACCEL_1_X);//GPC eroneously swaps Y and Z axis
+  //accelGrav[2] = get_actual(ACCEL_1_Y);//accel: Y should be up/down, Z should be front/back
+  //gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y should be yaw, Z should be roll
+  //gyroVelocity[1] = get_actual(GYRO_1_X);
+  //gyroVelocity[2] = get_actual(GYRO_1_Y);
 }
 
 void processInput() {
@@ -602,8 +615,8 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
   // gyro: [0]y [1]x [2]z == [yaw] [pitch] [roll]
   //accel: [0]y [1]x [2]z == [left/right] [up/down] [front/back]
   if (gyro_space == 0) {//LOCAL
-    camera[0] = calibratedGyro0 * gyroSensitivity;
-    camera[1] = calibratedGyro1 * gyroSensitivity;
+    camera[0] = calibratedGyro0;
+    camera[1] = calibratedGyro1;
   } else {//prep for player space and world space
     fix32 gravLength = sqrt(sq(accelGrav0) + sq(accelGrav1) + sq(accelGrav2));
     fix32 normGravX = 0.0;
@@ -633,8 +646,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         //const fix32 yawRelaxFactor = 1.41; // 45 degree buffer
         //const fix32 yawRelaxFactor = 1.15; // 30 degree buffer
         camera[0] = (fix32)worldYawSign
-        * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)))
-        * gyroSensitivity;
+        * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));
       } else {//PLAYER_LEAN (from JSM)
         // project local pitch axis (X) onto gravity plane
         // super simple since our point is only non-zero in one axis
@@ -668,7 +680,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
           }
         }
       }
-      camera[1] = calibratedGyro1 * gyroSensitivity;//player space still uses local pitch
+      camera[1] = calibratedGyro1;//player space still uses local pitch
 
     } else {//WORLD_TURN or WORLD_LEAN (from JSM)
       //prep for world space
@@ -721,8 +733,9 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
       }
     }
   }
-
-  if (GYRO_OFF()) camera[0] = camera[1] = 0.0;
+  camera[0] *= gyroSensitivity;//Apply sens regardless of space
+  camera[1] *= gyroSensitivity;
+  if (gyroBlocked) camera[0] = camera[1] = 0.0;
 }
 
 //accel
@@ -885,16 +898,17 @@ void getTightenedInput(fix32 *input0, fix32 *input1, fix32 threshold) {
 }
 
 fix32 pythag(fix32 a, fix32 b) {
-  //uint32 sqRoot;
-  //sqRoot = (uint32)(round(100.0 * sqrt( sq(a) + sq(b))));//store result in larger type
-  //printf("%d",sqRoot);
-  //if (sqRoot > 3276700) {
-  //printf("pythag return exceeded fix32");
-  //return -1;
-  //}
-  //must test function before commiting to new returns
-  //is floating point preserved within operation for typecast to even work this way?
-  //return (fix32)sqRoot / 100.0;
+  if (DEBUG) {
+    uint32 sqRoot;
+    sqRoot = (uint32)(round(100.0 * sqrt( sq(a) + sq(b))));//store result in larger type
+    if (sqRoot > 3276700) {
+      printf("pythag return exceeded fix32");
+      ERR = 1;
+      mslot_load(0);//hard abort
+      return -1.0;
+    }
+    return (fix32)sqRoot / 100.0;
+  }
   return sqrt( sq(a) + sq(b) );
 }
 
@@ -960,7 +974,7 @@ fix32 IN_FlickStick() {
 
   fix32 stickX = get_actual(STICK_1_X);
   fix32 stickY = get_actual(STICK_1_Y);
-  fix32 mag = sqrt(sq(stickX / 100.0) + sq(stickY / 100.0)) * 100.0;
+  fix32 mag = pythag(stickX, stickY);
 
   if (mag > 70.0) {// flick!
     fix32 stick_angle = (180.0 / PI) * atan2(stickX, -stickY);
@@ -973,7 +987,6 @@ fix32 IN_FlickStick() {
     } else {
       // Was already flicking, just turning now
       angle_change = stick_angle - last_stick_angle;
-              logger2(angle_change, stickX, stickY);
 
       // angle wrap: https://stackoverflow.com/a/11498248/1130520
       angle_change = mod(angle_change + 180.0, 360.0);
@@ -996,9 +1009,8 @@ fix32 IN_FlickStick() {
 
   // Flick Stick: flick in progress, changing the yaw angle to the target progressively
   if (flick_progress < FLICK_TIME) {
-    camera[0] += target_angle;// * rotation_factor[flick_progress];
+    camera[0] += target_angle * rotation_factor[flick_progress];
     flick_progress++;
-    printf("%d", flick_progress);
   }
 
   return angle_change *10.0;
