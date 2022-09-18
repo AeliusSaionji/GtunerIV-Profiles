@@ -963,7 +963,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
 }
 
 //flickstick from yquake2
-#define FLICK_TIME 6
+#define FLICK_TIME 1
 static fix32 target_angle;
 static uint8 flick_progress = FLICK_TIME;
 fix32 IN_FlickStick() {
@@ -976,7 +976,7 @@ fix32 IN_FlickStick() {
   fix32 stickY = get_actual(STICK_1_Y);
   fix32 mag = pythag(stickX, stickY);
 
-  if (mag > 70.0) {// flick!
+  if (mag > 99.0) {// flick!
     fix32 stick_angle = (180.0 / PI) * atan2(stickX, -stickY);
 
     if (!is_flicking) {
@@ -1001,15 +1001,9 @@ fix32 IN_FlickStick() {
     is_flicking = FALSE;
   }
 
-
-  // Flick Stick's factors to change to the target angle with a feeling of "ease out"
-  static const fix32 rotation_factor[FLICK_TIME] = {
-    0.305555556, 0.249999999, 0.194444445, 0.138888889, 0.083333333, 0.027777778
-  };
-
   // Flick Stick: flick in progress, changing the yaw angle to the target progressively
   if (flick_progress < FLICK_TIME) {
-    camera[0] += target_angle * rotation_factor[flick_progress];
+    camera[0] += target_angle;// * rotation_factor[flick_progress];
     flick_progress++;
   }
 
@@ -1019,140 +1013,116 @@ fix32 IN_FlickStick() {
 
 
 /*//jsm flick
-uint8 flickProgress = 6;
-fix32 flickSize = 0.0;
-bool isFlicking;
-bool isMouse;
-bool ROTATE_ONLY;
-uint8 flick_snap_mode = 0;
-fix32 flick_rotation_counter;
-#define FLICK_DEADZONE_ANGLE 0
-
 // settings
-uint8 flickStickThreshold = 90;
+fix32 flickStickThreshold = 99;//TODO convert to uint8 later
 fix32 FlickTime = 0.1;
 fix32 TurnSmoothThreshold = 0.1;
 
-// this will return a yaw change for the player
-// that'll be added to other input (such as gyro input)
-fix32 HandleFlickStick() {
-fix32 result = 0.0;
-fix32 stickX = get_actual(STICK_1_X);
-fix32 stickY = get_actual(STICK_1_Y);
-// by comparing the last frame to this one we can decide whether a flick is starting
-if (pythag(stickX, stickY) >= (fix32)flickStickThreshold) {
-fix32 stickAngle = atan2(-stickX, stickY);
-if (!isFlicking) {
-// bam! new flick!
-isFlicking = TRUE;
-if (!ROTATE_ONLY) {
-if (flick_snap_mode > 0) {
-//snapmode
-}
-if (abs(stickAngle) * (180.0 / PI) < FLICK_DEADZONE_ANGLE) stickAngle 0.0;
-//jc->started_flick = chrono::steady_clock::now();
-//jc->delta_flick = stickAngle;
-//jc->flick_percent_done = 0.0f;
-//jc->ResetSmoothSample();
-flick_rotation_counter = stickAngle; // track all rotation for this flick
-//COUT << "Flick: " << setprecision(3) << stickAngle * (180.0f / (float)PI) << " degrees" << endl;
-}
-} else {
-if (!FLICK_ONLY) {
-// not new? turn camera?
-float lastStickAngle = atan2f(-lastOffsetX, lastOffsetY);
-float angleChange = stickAngle - lastStickAngle;
-// https://stackoverflow.com/a/11498248/1130520
-angleChange = fmod(angleChange + PI, 2.0f * PI);
-if (angleChange < 0) angleChange += 2.0 * PI;
-angleChange -= PI;
-jc->flick_rotation_counter += angleChange; // track all rotation for this flick
-float flickSpeedConstant = isMouse ? jc->getSetting(SettingID::REAL_WORLD_CALIBRATION) * mouseCalibrationFactor / jc->getSetting(SettingID::IN_GAME_SENS) : 1.f;
-float flickSpeed = -(angleChange * flickSpeedConstant);
-int maxSmoothingSamples = min(jc->NumSamples, (int)ceil(64.0f / tick_time.get())); // target a max smoothing window size of 64ms
-float stepSize = 0.01f;                                                            // and we only want full on smoothing when the stick change each time we poll it is approximately the minimum stick resolution
-// the fact that we're using radians makes this really easy
-auto rotate_smooth_override = jc->getSetting(SettingID::ROTATE_SMOOTH_OVERRIDE);
-if (rotate_smooth_override < 0.0f)
+fix32 handleFlickStick() {
+  bool isFlicking;
+  bool ROTATE_ONLY;
+  uint8 flick_snap_mode = 0;
+  fix32 flick_rotation_counter;
+  #define FLICK_DEADZONE_ANGLE 0
+  fix32 stickX = get_actual(STICK_1_X);
+  fix32 stickY = get_actual(STICK_1_Y);
+  fix32 stickLength = pythag(stickX, stickY);
 
-flickProgress = 0; // restart flick timer
-// stick angle from up/forward
-flickSize = atan2(-stickX, stickY);
-} else {
-// turn!
-// stick angle from up/forward
-fix32 lastStickAngle = atan2(-lastStickX, lastStickY);
-fix32 angleChange = stickAngle - lastStickAngle;
-angleChange = mod(angleChange + PI, 2.0 * PI);
-if (angleChange < 0.0) angleChange += 2.0 * PI;
-angleChange -= PI;
-result += GetTieredSmoothedStickRotation(angleChange,
-TurnSmoothThreshold / 2.0, TurnSmoothThreshold);
-} else {
-// turn cleanup
-if (lastLength >= FlickThreshold) {
-// we've just transitioned from flick/turn to no flick, so clean up
-//ZeroTurnSmoothing();
-}
-}
-}
+  if (isFlicking) flickStickThreshold *= 0.9;
+  if (stickLength >= flickStickThreshold) {
+    fix32 stickAngle = atan2(-stickX, stickY);
+    if (!isFlicking) {
+      // bam! new flick!
+      isFlicking = TRUE;
+      if (!ROTATE_ONLY) {
+        if (flick_snap_mode > 0) {
+          //snapmode
+        }
+        if (abs(stickAngle) * (180.0 / PI) < FLICK_DEADZONE_ANGLE) stickAngle 0.0;
+        uint32 started_flick = system_time();
+        fix32 delta_flick = stickAngle;
+        fix32 flick_percent_done = 0.0;
+        //jc->ResetSmoothSample();
+        flick_rotation_counter = stickAngle; // track all rotation for this flick
+        //COUT << "Flick: " << setprecision(3) << stickAngle * (180.0f / (float)PI) << " degrees" << endl;
+      }
+    } else {
+      if (!FLICK_ONLY) {
+        // not new? turn camera?
+        fix32 lastStickAngle = atan2f(-lastOffsetX, lastOffsetY);
+        fix32 angleChange = stickAngle - lastStickAngle;
+        // https://stackoverflow.com/a/11498248/1130520
+        angleChange = mod(angleChange + PI, 2.0 * PI);
+        if (angleChange < 0) angleChange += 2.0 * PI;
+        angleChange -= PI;
+        flick_rotation_counter += angleChange; // track all rotation for this flick
+        fix32 flickSpeedConstant = isMouse ? REAL_WORLD_CALIBRATION * mouseCalibrationFactor / IN_GAME_SENS : 1.0;
+        fix32 flickSpeed = -(angleChange * flickSpeedConstant);
+        int8 maxSmoothingSamples = min(NumSamples, (int)ceil(64.0 / tick_time.get ));// target a max smoothing window size of 64ms
+        fix32 stepSize = 0.01;// and we only want full on smoothing when the stick change each time we poll it is approximately the minimum stick resolution
+        // the fact that we're using radians makes this really easy
 
-// continue flick
-fix32 lastFlickProgress = flickProgress;
-if (lastFlickProgress < FlickTime) {
-flickProgress = min(flickProgress + deltaTime, FlickTime);
+        //ROTATE_SMOOTH_OVERRIDE would go here if we implemented it
 
-// get last time and this time in 0-1 completion range
-fix32 lastPerOne = lastFlickProgress / FlickTime;
-fix32 thisPerOne = flickProgress / FlickTime;
+        if (!isMouse) {
+          // convert to a velocity
+          camSpeedX *= 180.0 / (PI * 0.001 * tick_time.get);
+        }
+      }
+    }
+  } else if (isFlicking) {
+    // was a flick! how much was the flick and rotation?
+    if (!FLICK_ONLY && !ROTATE_ONLY) {
+      fix32 last_flick_and_rotation = abs(flick_rotation_counter) / (2.0 * PI);
+    }
+    isFlicking = false;
+  }
+  // do the flicking. this works very differently if it's mouse vs stick
+  if (isMouse) {
+    fix32 secondsSinceFlick = ((float)chrono::duration_cast<chrono::microseconds>(jc->time_now - jc->started_flick).count()) / 1000000.0;
+    fix32 newPercent = secondsSinceFlick / 0.1; //getSetting(SettingID::FLICK_TIME);
 
-// our WarpEaseOut function stays within the 0-1 range but pushes it all closer to 1
-fix32 warpedLastPerOne = WarpEaseOut(lastPerOne);
-fix32 warpedThisPerOne = WarpEaseOut(thisPerOne);
+    // don't divide by zero
+    if (abs(delta_flick) > 0.0) {
+      newPercent /= abs(delta_flick) / PI;
+    }
 
-// now use the difference between last frame/sample and this frame/sample
-result += (warpedThisPerOne - warpedLastPerOne) * flickSize;
-}
+    if (newPercent > 1.0) newPercent = 1.0;
+    // warping towards 1.0
+    fix32 oldShapedPercent = 1.0 - flick_percent_done;
+    oldShapedPercent *= oldShapedPercent;
+    oldShapedPercent = 1.0 - oldShapedPercent;
+    flick_percent_done = newPercent;
+    newPercent = 1.0 - newPercent;
+    newPercent *= newPercent;
+    newPercent = 1.0 - newPercent;
+    fix32 camSpeedChange = (newPercent - oldShapedPercent) * delta_flick * REAL_WORLD_CALIBRATION * -mouseCalibrationFactor / IN_GAME_SENS;
+    camSpeedX += camSpeedChange;
 
-return result;
-}
+    return camSpeedX;
+  } else {
+    fix32 secondsSinceFlick = ((float)chrono::duration_cast<chrono::microseconds>(jc->time_now - jc->started_flick).count()) / 1000000.0;
+    fix32 flickTime = abs(delta_flick) / (maxStickGameSpeed * PI / 180.f);
 
-fix32 WarpEaseOut(fix32 input) {
-fix32 flipped = 1.0 - input;
-return 1.0 - sq(flipped);
-}
+    if (secondsSinceFlick <= flickTime) {
+      camSpeedX -= delta_flick >= 0 ? maxStickGameSpeed : -maxStickGameSpeed;
+    }
 
-// smoothing buffer
-static fix32 InputBuffer[SMOOTH_BUFFER_SIZE];
-fix32 GetSmoothedStickRotation(fix32 input) {
-static uint8 CurrentInputIndex = -1;
-CurrentInputIndex = (CurrentInputIndex + 1) % SMOOTH_BUFFER_SIZE;
+    if (gyroOutput == flickStickOutput) {
+      gyroXVelocity += camSpeedX;
+      processGyroStick(jc, 0.f, 0.f, 0.f, flickStickOutput == GyroOutput::LEFT_STICK ? StickMode::LEFT_STICK : StickMode::RIGHT_STICK, false);
+    } else {
+      fix32 tempGyroXVelocity = gyroXVelocity;
+      fix32 tempGyroYVelocity = gyroYVelocity;
+      gyroXVelocity = camSpeedX;
+      gyroYVelocity = 0.0;
+      processGyroStick(jc, 0.f, 0.f, 0.f, flickStickOutput == GyroOutput::LEFT_STICK ? StickMode::LEFT_STICK : StickMode::RIGHT_STICK, true);
+      gyroXVelocity = tempGyroXVelocity;
+      gyroYVelocity = tempGyroYVelocity;
+    }
 
-//static fix32 InputBuffer[SMOOTH_BUFFER_SIZE];
-
-InputBuffer[CurrentInputIndex] = input;
-
-uint8 i;
-for (i = 0; i < SMOOTH_BUFFER_SIZE; i++) {
-input += InputBuffer[i];
-}
-return input /= (fix32)SMOOTH_BUFFER_SIZE;
-}
-
-fix32 GetTieredSmoothedStickRotation(fix32 input,
-fix32 threshold1, fix32 threshold2) {
-
-fix32 inputMagnitude = abs(input);
-
-fix32 directWeight = (inputMagnitude - threshold1) / (threshold2 - threshold1);
-directWeight = clamp(directWeight, 0.0, 1.0);
-
-return GetDirectStickRotation(input * directWeight) +
-GetSmoothedStickRotation(input * (1.0 - directWeight));
-}
-
-void ZeroTurnSmoothing() {
-memset(&InputBuffer, 0, 4);
+    return 0.0;
+  }
 }*/
 
 uint32 profiler(char func, uint32 startTime) {
