@@ -21,16 +21,13 @@ NOTES
 TODO
 GYRO_SENS X Y
 rename camera[] to two variables that make sense
---same with calibratedGxro
-why did pythag cause a flip in world(?) space
+--same with calibratedGyro
+why did pythag cause a flip in world(?) space (retest with new pythag)
 why do I have a mystery pitch axis flip in world space
-if max_sens is zero, default to no accel
 kalman 1d?
 in heavybullets, jsm roughly 2x as sensitive given same settings?
 document the blink timing thing
 possibly use blinkerSync to map joystick curve, predict UNPOWER setting
-finish liveAdjust()
---blink color per setting?
 do the various sens functions still take accel into account?
 --what did I mean by this
 read out 'gyro' to seg disp
@@ -69,6 +66,26 @@ make GYRO_OFF work as a one liner instead of this if then true else false nonsen
 #include <keyboard.gph>
 #include <display.gph>
 #define SMOOTH_BUFFER_SIZE 32 //>45 May lag CPU, >90 very limited memory available
+#define OFF_GO 0  // 1byte // GYRO_OUTPUT
+#define OFF_GS 1  // 1byte // GYRO_SPACE
+#define OFF_OP 2  // 1byte // output_protocol
+#define OFF_CC 3  // 2byte // calibrationCount aka num of cal samples
+#define OFF_MS 5  // 2byte // maxStickGameSpeed aka VIRTUAL_STICK_CALIBRATION
+#define OFF_OO 7  // 1bit  // outerStickOverride
+#define OFF_CB 7  // 1bit  // calibrating
+#define OFF_SD 7  // 1bit  // stickDisable
+#define OFF_FS 7  // 1bit  // flickstick
+#define OFF_WS 7  // 1bit  // winding
+#define OFF_NT 10 // 4byte // MIN_GYRO_THRESHOLD
+#define OFF_XT 14 // 4byte // MAX_GYRO_THRESHOLD
+#define OFF_NS 18 // 4byte // MIN_GYRO_SENS
+#define OFF_XS 22 // 4byte // MAX_GYRO_SENS
+#define OFF_UI 26 // 4byte // UNDEADZONE_INNER
+#define OFF_UO 30 // 4byte // UNDEADZONE_OUTER
+#define OFF_VS 34 // 4byte // VIRTUAL_SCALE
+#define OFF_UN 38 // 4byte // UNPOWER
+#define OFF_TT 42 // 4byte // gyro_tight_threshold
+#define OFF_ST 46 // 4byte // GYRO_SMOOTH_THRESHOLD
 
 //Misc Globals
 uint16 offsetSamples;
@@ -95,8 +112,9 @@ const uint8 outProtocol = 0;
 const bool calibrating = TRUE;
 const bool outerStickOverride = TRUE;
 const bool stickDisable = FALSE;
+const bool flickstick = FALSE;
 const bool winding = FALSE;
-uint8 gyro_space = '0';//0:LOCAL, 1:PLAYER_TURN
+uint8 gyro_space = 0;
 uint16 maxStickGameSpeed = 360;
 fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
@@ -116,26 +134,28 @@ init {
   pmem_load();
 
   //uint8 only
-  gyro_output        = pmem_read(0);
-  gyro_space         = pmem_read(5);
-  outProtocol        = pmem_read(50);
+  gyro_output        = pmem_read(OFF_GO);
+  gyro_space         = pmem_read(OFF_GS);
+  outProtocol        = pmem_read(OFF_OP);
   //bools
-  outerStickOverride = (pmem_read(25)>>1) & 0b1;
-  calibrating        = (pmem_read(25)>>3) & 0b1;
-  //flickstick       = (pmem_read(25)>>3) & 0b1;
-  stickDisable       = (pmem_read(25)>>5) & 0b1;
+  outerStickOverride = (pmem_read(OFF_OO)>>0) & 0b1;
+  calibrating        = (pmem_read(OFF_CB)>>1) & 0b1;
+  stickDisable       = (pmem_read(OFF_SD)>>2) & 0b1;
+  flickstick         = (pmem_read(OFF_FS)>>3) & 0b1;
+  winding            = (pmem_read(OFF_WS)>>4) & 0b1;
+
   //fix32s & int16s
-  pmem_read(17, &undeadzone_inner);
-  pmem_read(21, &undeadzone_outer);
-  pmem_read(5,  &virtual_scale);
-  pmem_read(13, &unpower);
-  pmem_read(9,  &maxStickGameSpeed);
-  pmem_read(34, &min_gyro_threshold);
-  pmem_read(38, &max_gyro_threshold);
-  pmem_read(26, &min_gyro_sens);
-  pmem_read(30, &max_gyro_sens);
-  pmem_read(42, &gyro_tight_threshold);
-  pmem_read(46, &gyro_smooth_threshold);
+  pmem_read(OFF_UI, &undeadzone_inner);
+  pmem_read(OFF_UO, &undeadzone_outer);
+  pmem_read(OFF_VS, &virtual_scale);
+  pmem_read(OFF_UN, &unpower);
+  pmem_read(OFF_MS, &maxStickGameSpeed);
+  pmem_read(OFF_NT, &min_gyro_threshold);
+  pmem_read(OFF_XT, &max_gyro_threshold);
+  pmem_read(OFF_NS, &min_gyro_sens);
+  pmem_read(OFF_XS, &max_gyro_sens);
+  pmem_read(OFF_TT, &gyro_tight_threshold);
+  pmem_read(OFF_ST, &gyro_smooth_threshold);
   min_gyro_threshold /= 25.0;//divide thresholds by a guestimated number,
   max_gyro_threshold /= 25.0;//such that they correspond to angular velocity
   gyro_tight_threshold /= 25.0;//(using same number as accel normalized to grav)
@@ -158,7 +178,7 @@ init {
 
   if (DEBUG) {
     LOGGING = FALSE;
-    gyro_output = 0;
+    gyro_output = 1;
     outerStickOverride = FALSE;
     calibrating = TRUE;
     undeadzone_inner = 0.51;
@@ -348,10 +368,53 @@ void blinkerSync() {
 
   maxStickGameSpeed = 360000 / clamp(blinkHz, 100, 6000);//degrees per second
   if (event_active(BUTTON_3)) {//START,+,SHARE, whathaveyou button
-    pmem_write(9, maxStickGameSpeed);
+    pmem_write(OFF_MS, maxStickGameSpeed);
     pmem_save();
     printf("Saved",0);
   }
+}
+
+combo flashBlueRed {
+  led_reset();
+  led_vmset(LED_1, 200, 800, -1);
+  wait(0);
+  wait(200);
+  led_vmset(LED_2, 200, 800, -1);
+}
+combo flashRedBlue {
+  led_reset();
+  led_vmset(LED_2, 200, 800, -1);
+  wait(0);
+  wait(200);
+  led_vmset(LED_1, 200, 800, -1);
+}
+combo flashBlueGreen {
+  led_reset();
+  led_vmset(LED_1, 200, 800, -1);
+  wait(0);
+  wait(200);
+  led_vmset(LED_3, 200, 800, -1);
+}
+combo flashGreenBlue {
+  led_reset();
+  led_vmset(LED_3, 200, 800, -1);
+  wait(0);
+  wait(200);
+  led_vmset(LED_1, 200, 800, -1);
+}
+combo flashRedGreen {
+  led_reset();
+  led_vmset(LED_2, 200, 800, -1);
+  wait(0);
+  wait(200);
+  led_vmset(LED_3, 200, 800, -1);
+}
+combo flashGreenRed {//for undeadzone_outer, if added to liveAdjust
+  led_reset();
+  led_vmset(LED_3, 200, 800, -1);
+  wait(0);
+  wait(200);
+  led_vmset(LED_2, 200, 800, -1);
 }
 
 void liveAdjust() {
@@ -359,86 +422,115 @@ void liveAdjust() {
   static uint16 clampHigh;
   static uint8 incDiv;
   static uint8 settingsIndex = 0;
-  static uint8 memOffset = 26;
+  static uint8 memOffset = OFF_NS;
   if (event_active(BUTTON_16)) {//South
-    settingsIndex  = (settingsIndex  + 1) % 10;
+    settingsIndex  = (settingsIndex  + 1) % 11;//change me to match total case count!
     switch (settingsIndex) {
-      case 0: {//brackets because gtuner won't "reindent" switch/case alone
-        adjustPtr = &undeadzone_inner;
-        memOffset = 61;
-        clampHigh = 1;
-        incDiv = 100;
-        printf("Adjusting UNDEADZONE_INNER. Current: %.2f", *adjustPtr);
-        break;
-      }
-      case 1: {
+      case 1: {//brackets because gtuner won't "reindent" switch/case alone
         adjustPtr = &min_gyro_sens;
-        memOffset = 26;
+        memOffset = OFF_NS;
         clampHigh = 10;
         incDiv = 100;
+        combo_run(flashBlueRed);
         printf("Adjusting MIN_GYRO_SENS. Current: %.2f", *adjustPtr);
         break;
       }
       case 2: {
         adjustPtr = &max_gyro_sens;
-        memOffset = 30;
+        memOffset = OFF_XS;
         clampHigh = 10;
         incDiv = 100;
+        combo_run(flashRedBlue);
         printf("Adjusting MAX_GYRO_SENS. Current: %.2f", *adjustPtr);
         break;
       }
       case 3: {
         adjustPtr = &min_gyro_threshold;
-        memOffset = 34;
+        memOffset = OFF_NT;
         clampHigh = 1000;
         incDiv = 1;
+        combo_run(flashBlueGreen);
         printf("Adjusting MIN_GYRO_THRESHOLD. Current: %.2f", *adjustPtr);
         break;
       }
       case 4: {
         adjustPtr = &max_gyro_threshold;
-        memOffset = 38;
+        memOffset = OFF_XT;
         clampHigh = 1000;
         incDiv = 1;
+        combo_run(flashGreenBlue);
         printf("Adjusting MAX_GYRO_THRESHOLD. Current: %.2f", *adjustPtr);
         break;
       }
       case 5: {
         adjustPtr = &gyro_smooth_threshold;
-        memOffset = 46;
+        memOffset = OFF_ST;
         clampHigh = 1000;
         incDiv = 1;
+        led_reset();
+        led_vmset(LED_1, 200, 800, -1);
+        led_vmset(LED_3, 400, 600, -1);//cyan green
         printf("Adjusting GYRO_SMOOTH_THRESHOLD. Current: %.2f", *adjustPtr);
         break;
       }
       case 6: {
         adjustPtr = &gyro_tight_threshold;
-        memOffset = 42;
+        memOffset = OFF_TT;
         clampHigh = 1000;
         incDiv = 1;
+        led_reset();
+        led_vmset(LED_2, 200, 800, -1);
+        led_vmset(LED_3, 400, 600, -1);//yellow green
         printf("Adjusting gyro_tight_threshold. Current: %.2f", *adjustPtr);
         break;
       }
       case 7: {
         adjustPtr = &unpower;
-        memOffset = 57;
+        memOffset = OFF_UN;
         clampHigh = 2;
         incDiv = 100;
+        led_reset();
+        led_vmset(LED_1, 200, 800, -1);
+        led_vmset(LED_2, 400, 600, -1);//purple red
         printf("Adjusting UNPOWER. Current: %.2f", *adjustPtr);
         break;
       }
       case 8: {
         adjustPtr = &virtual_scale;
-        memOffset = 53;
+        memOffset = OFF_VS;
         clampHigh = 10;
         incDiv = 100;
+        led_reset();
+        led_vmset(LED_2, 200, 800, -1);
+        led_vmset(LED_1, 400, 600, -1);//purple blue
         printf("Adjusting VIRTUAL_SCALE. Current: %.2f", *adjustPtr);
         break;
       }
       case 9: {
         adjustPtr = &gyro_space;
-        memOffset = 5;
+        memOffset = OFF_GS;
+        led_reset();
+        led_vmset(LED_3, 200, 800, -1);
+        led_vmset(LED_1, 400, 600, -1);//cyan blue
         printf("Adjusting GYRO_SPACE.", 0);
+        break;
+      }
+      case 10: {
+        adjustPtr = &undeadzone_inner;
+        memOffset = OFF_UI;
+        clampHigh = 1;
+        incDiv = 100;
+        combo_run(flashRedGreen);
+        printf("Adjusting UNDEADZONE_inner. Current: %.2f", *adjustPtr);
+        break;
+      }
+      case 0: {//yes, this is case 0. Putting outer next to inner
+        adjustPtr = &undeadzone_outer;
+        memOffset = OFF_UO;
+        clampHigh = 1;
+        incDiv = 100;
+        combo_run(flashGreenRed);
+        printf("Adjusting UNDEADZONE_OUTER. Current: %.2f", *adjustPtr);
         break;
       }
     }
@@ -454,8 +546,10 @@ void liveAdjust() {
     if (adjustPtr == &gyro_space) {
       spacePtr = &gyro_space;
       const char *spaceOpts[] = { "LOCAL", "PLAYER_TURN", "PLAYER_LEAN", "WORLD_TURN", "WORLD_LEAN"};
+      const uint8 dispSpace[] = {_L_, _P_, _P_, _W_, _W_};
       *spacePtr = incPtr >= 0 ? (*spacePtr + 1) % 5 : *spacePtr;//Usual circular mod logic
       *spacePtr = incPtr <= 0 ? (*spacePtr + 4) % 5 : *spacePtr;//same logic in reverse
+      display_overlay(dispSpace[*spacePtr], 1000);
       printf(spaceOpts[*spacePtr]);
       return;
     }
@@ -478,18 +572,19 @@ void liveAdjust() {
 }
 
 void commitSettings() {
-  pmem_write(26, min_gyro_sens);
-  pmem_write(30, max_gyro_sens);
-  pmem_write(34, min_gyro_threshold);
-  pmem_write(38, max_gyro_threshold);
-  pmem_write(42, gyro_tight_threshold);
-  pmem_write(46, gyro_smooth_threshold);
-  pmem_write(53, virtual_scale);
-  pmem_write(57, unpower);
-  pmem_write(61, undeadzone_inner);
-  pmem_write(5,  gyro_space);
+  pmem_write(OFF_NS, min_gyro_sens);
+  pmem_write(OFF_XS, max_gyro_sens);
+  pmem_write(OFF_NT, min_gyro_threshold);
+  pmem_write(OFF_XT, max_gyro_threshold);
+  pmem_write(OFF_TT, gyro_tight_threshold);
+  pmem_write(OFF_ST, gyro_smooth_threshold);
+  pmem_write(OFF_VS, virtual_scale);
+  pmem_write(OFF_UN, unpower);
+  pmem_write(OFF_UI, undeadzone_inner);
+  pmem_write(OFF_UO, undeadzone_outer);
+  pmem_write(OFF_GS, gyro_space);
   pmem_save();
-  if (min_gyro_sens != max_gyro_sens) {
+  if (min_gyro_sens < max_gyro_sens) {
     printf("You have MIN_GYRO_SENS and MAX_GYRO_SENS set to different values.<br>\
     Remember, this will linearly accelerate between the two values at the configured thresholds.<br>\
     Give them both the same value to disable acceleration.");
@@ -562,7 +657,7 @@ void processInput() {
   if (calibrating) {
     static uint16 count = 0;
     static int16 calibrationCount = -1;
-    if (calibrationCount == -1) pmem_read(51, &calibrationCount);
+    if (calibrationCount == -1) pmem_read(OFF_CC, &calibrationCount);
     offsetSamples++;
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
@@ -600,7 +695,7 @@ void processInput() {
   }
 
   //accelerating
-  if (min_gyro_sens != max_gyro_sens) {
+  if (min_gyro_sens < max_gyro_sens) {//only when valid
     processGyroAccel(calibratedGyro[0], calibratedGyro[1], calibratedGyro[2],
     accelGrav[0], accelGrav[1], accelGrav[2],
     min_gyro_sens, max_gyro_sens, min_gyro_threshold, max_gyro_threshold);
@@ -646,7 +741,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         //const fix32 yawRelaxFactor = 1.41; // 45 degree buffer
         //const fix32 yawRelaxFactor = 1.15; // 30 degree buffer
         camera[0] = (fix32)worldYawSign
-        * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));
+        * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));//TODO test with pythag
       } else {//PLAYER_LEAN (from JSM)
         // project local pitch axis (X) onto gravity plane
         // super simple since our point is only non-zero in one axis
@@ -675,7 +770,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
             //const fix32 rollRelaxFactor = 1.41; // 45 degree buffer
             //const fix32 rollRelaxFactor = 1.15; // 30 degree buffer
             camera[0] = (fix32)worldRollSign
-            * min(abs(worldRoll) * rollRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));
+            * min(abs(worldRoll) * rollRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));//TODO test with pythag
             camera[0] *= sideReduction;
           }
         }
@@ -835,7 +930,7 @@ uint16 threshold = GYRO_SMOOTH_THRESHOLD;
 jc->GetSmoothedGyro(gyroX, gyroY, gyroLength, threshold / 2.0f, threshold, int(numGyroSamples), gyroX, gyroY);
 
 // now, honour gyro_cutoff_speed
-gyroLength = sqrt(sq(gyroX) + sq(gyroY));
+gyroLength = sqrt(sq(gyroX) + sq(gyroY));//TODO test with pythag
 auto speed = GYRO_CUTOFF_SPEED;
 auto recovery = GYRO_CUTOFF_RECOVERY;
 if (recovery > speed) {
@@ -1203,7 +1298,7 @@ item        = User Preset 2:
 [Layout]
 [GYRO_OUTPUT]
 shortdesc = GYRO_OUTPUT
-byteoffset = 0
+byteoffset = OFF_GO
 bitsize = 8
 bitoffset = 0
 control = radiobox
@@ -1214,27 +1309,27 @@ item = LEFT_STICK (incomplete)
 group = true
 [Layout Flickstick checkbox]
 shortdesc = 
-byteoffset = 25
+byteoffset = OFF_FS
 bitsize = 1
-bitoffset = 4
+bitoffset = 3
 control = checkbox
 default = 0
 item = Flickstick
 groupcol = true
 [Layout windingStick checkbox]
 shortdesc = 
-byteoffset = 25
+byteoffset = OFF_WS
 bitsize = 1
-bitoffset = 6
+bitoffset = 4
 control = checkbox
 default = 0
 item = Rotational stick aim
 group = true
 [Layout stickDisable checkbox]
 shortdesc = 
-byteoffset = 25
+byteoffset = OFF_SD
 bitsize = 1
-bitoffset = 5
+bitoffset = 2
 control = checkbox
 default = 0
 item = Disable right joystick in mouse mode
@@ -1244,7 +1339,7 @@ group = true
 [Acceleration]
 [MIN_GYRO_SENS]
 shortdesc = MIN_GYRO_SENS
-byteoffset = 26
+byteoffset = OFF_NS
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1256,7 +1351,7 @@ step = 001
 group = true
 [MAX_GYRO_SENS]
 shortdesc = MAX_GYRO_SENS
-byteoffset = 30
+byteoffset = OFF_XS
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1268,7 +1363,7 @@ step = 001
 group = true
 [MIN_GYRO_THRESHOLD]
 shortdesc = MIN_GYRO_THRESHOLD
-byteoffset = 34
+byteoffset = OFF_NT
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1280,7 +1375,7 @@ step = 001
 groupcol = true
 [MAX_GYRO_THRESHOLD]
 shortdesc = MAX_GYRO_THRESHOLD
-byteoffset = 38
+byteoffset = OFF_XT
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1294,7 +1389,7 @@ group = true
 [Virtual Controller Stick Config]
 [UNDEADZONE_INNER]
 shortdesc = UNDEADZONE_INNER
-byteoffset = 61
+byteoffset = OFF_UI
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1310,7 +1405,7 @@ default = 5
 group = true
 [UNDEADZONE_OUTER]
 shortdesc = UNDEADZONE_OUTER
-byteoffset = 65
+byteoffset = OFF_UO
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1326,7 +1421,7 @@ default = 25
 group = true
 [VIRTUAL_SCALE]
 shortdesc = VIRTUAL_SCALE
-byteoffset = 53
+byteoffset = OFF_VS
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1342,7 +1437,7 @@ default = 25
 group = true
 [UNPOWER]
 shortdesc = UNPOWER
-byteoffset = 57
+byteoffset = OFF_UN
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1375,7 +1470,7 @@ group = true
 
 [VIRTUAL_STICK_CALIBRATION]
 shortdesc = VIRTUAL_STICK_CALIBRATION
-byteoffset = 9
+byteoffset = OFF_MS
 bitsize = 16
 bitoffset = 0
 control = spinbox
@@ -1391,16 +1486,16 @@ groupcol = true
 [Misc]
 [Calibrate gyro on startup]
 shortdesc = 
-byteoffset = 25
+byteoffset = OFF_CB
 bitsize = 1
-bitoffset = 3
+bitoffset = 1
 control = checkbox
 default = 1
 item = Calibrate gyro on startup
 group = true
 [Calibration samples]
 shortdesc = Calibration samples
-byteoffset = 51
+byteoffset = OFF_CC
 bitsize = 16
 bitoffset = 0
 control = dial
@@ -1411,7 +1506,7 @@ step = 50
 group = true
 [gyro_tight_threshold]
 shortdesc = Tightening threshold
-byteoffset = 42
+byteoffset = OFF_TT
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1423,7 +1518,7 @@ step = 100
 groupcol = true
 [GYRO_SMOOTH_THRESHOLD]
 shortdesc = GYRO_SMOOTH_THRESHOLD
-byteoffset = 46
+byteoffset = OFF_ST
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1435,9 +1530,9 @@ step = 100
 group = true
 [Outer deadzone override]
 shortdesc = 
-byteoffset = 25
+byteoffset = OFF_OO
 bitsize = 1
-bitoffset = 1
+bitoffset = 0
 control = checkbox
 default = 0
 item = stick outer deadzone
@@ -1446,7 +1541,7 @@ group = true
 [GYRO_SPACE]
 shortdesc = The logic by which we interpret the gyro
 bitsize = 8
-byteoffset = 5
+byteoffset = OFF_GS
 control = combobox
 default = 0
 item = LOCAL
@@ -1458,7 +1553,7 @@ item = WORLD_LEAN
 [Output Protocol]
 shortdesc = Remember this output next time you run the script
 bitsize = 8
-byteoffset = 50
+byteoffset = OFF_OP
 control = combobox
 default = 0
 item = TitanTwo configured global default
