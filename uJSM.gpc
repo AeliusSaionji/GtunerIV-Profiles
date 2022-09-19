@@ -897,19 +897,29 @@ void getTightenedInput(fix32 *input0, fix32 *input1, fix32 threshold) {
   }
 }
 
-fix32 pythag(fix32 a, fix32 b) {
-  if (DEBUG) {
-    uint32 sqRoot;
-    sqRoot = (uint32)(round(100.0 * sqrt( sq(a) + sq(b))));//store result in larger type
-    if (sqRoot > 3276700) {
-      printf("pythag return exceeded fix32");
-      ERR = 1;
-      mslot_load(0);//hard abort
-      return -1.0;
+fix32 ipythag(uint32 a, uint32 b) {//ipythag thanks to ME. (and wikipedia)
+  a = (a*a) + (b*b);
+  int32 c, d = 0x40000000;
+  while (d > a) d >>= 2;
+  while (d) {
+    if (a >= c + d) {
+      a -= c + d;
+      c >>= 1;
+      c += d;
+    } else {
+      c >>= 1;
     }
-    return (fix32)sqRoot / 100.0;
+    d >>= 2;
   }
-  return sqrt( sq(a) + sq(b) );
+
+  return (fix32)c;
+}
+
+fix32 pythag(fix32 a, fix32 b) {
+  if (abs((int)a) <= 128 && abs((int)b) <= 128) return sqrt(sq(a) + sq(b));
+  if (abs((int)a) <= 23170 && abs((int)b) <= 23170) return ipythag((int)a, (int)b);
+  printf("pythag return exceeded fix32");
+  return - 1.0;
 }
 
 bool processGyroStick(fix32 stickX, fix32 stickY) {
