@@ -20,6 +20,8 @@ NOTES
 
 TODO
 GYRO_SENS X Y
+read out 10s digit to segdisp in liveAdjust
+titan deltaTime internal? Resolve mystery once and for all.
 rename camera[] to two variables that make sense
 --same with calibratedGyro
 why did pythag cause a flip in world(?) space (retest with new pythag)
@@ -46,6 +48,7 @@ flickstick
 --joystick
 --translate flickstick joystick hold to aim? feels like regular gyro aim cuts off too fast. check how jsm feels
 revisit winding flickstick
+--runs get_actual; surely it can pull from another area we already poll the stick
 --add haptic bump when leaving 0/deadzone
 optimize variables and memory usage
 --offsetSamples and the local count are SO SIMILAR
@@ -60,6 +63,7 @@ check that += camera is really not necessary
 removed the "gyro on while joystick held" code, needs to be readded
 logger needs variable argument list length
 make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
+Just add sticks as a variable in the polling loop?
 */
 
 #include <mouse.gph>
@@ -93,7 +97,6 @@ uint32 mouseSamples;
 fix32 gyroVelocity[3];//0 is Yaw (Z), 1 is Pitch (X), 2 is roll (Y)
 fix32 accelGrav[3];// Using order Z X Y again
 fix32 calibratedGyro[3];
-fix32 gyroCalibration[3];
 fix32 accumulatedOffset[3];
 fix32 camera[2];
 fix32 gyroStickX;
@@ -214,7 +217,9 @@ main {
   }
 
   //Bind to enter config mode
-  if (is_active(BUTTON_4) && event_active(BUTTON_7) && (abs(get_actual(ACCEL_1_Z)) < 3.0)) {
+  if (is_active(BUTTON_4)//while R1 is held...
+  && event_active(BUTTON_7)//press L1...
+  && (abs(get_actual(ACCEL_1_Z)) < 3.0)) {//when controller is held sideways
     configMode = configMode ? FALSE : TRUE;
     if (configMode) {
       ffb_set(FFB_1, 100.0, 50);
@@ -248,36 +253,35 @@ main {
         processInput();//collect only uinque samples in calibration
       }
     }
-    accelGrav[0] = get_actual(ACCEL_1_Z);
-    accelGrav[1] = get_actual(ACCEL_1_X);//GPC eroneously swaps Y and Z axis
-    accelGrav[2] = get_actual(ACCEL_1_Y);//accel: Y should be up/down, Z should be front/back
-    gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y should be yaw, Z should be roll
+    accelGrav[0]    = get_actual(ACCEL_1_Z);//GPC swaps Y and Z axis.
+    accelGrav[1]    = get_actual(ACCEL_1_X);//What I expect:
+    accelGrav[2]    = get_actual(ACCEL_1_Y);//accel: Y up/down, Z front/back
+    gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y yaw, Z roll
     gyroVelocity[1] = get_actual(GYRO_1_X);
     gyroVelocity[2] = get_actual(GYRO_1_Y);
-    //gyroVelocity[0] = (fix32)gZ/-25.0;//On first blush, divide by 25 seems close to degrees/s.
-    //gyroVelocity[1] = (fix32)gX/-25.0;//That would make sense, because 
-    //gyroVelocity[2] = (fix32)gY/-25.0;//it would be in line with accel
+    //gyroVelocity[0] = (fix32)gZ/-25.0;//Divide by 25 seems near degrees/s.
+    //gyroVelocity[1] = (fix32)gX/-25.0;//That makes a sense, since it aligns
+    //gyroVelocity[2] = (fix32)gY/-25.0;//with accel's 25=gravity.
 
-    //Process input on regular intervals regardless of dupes
-    if (!calibrating) processInput();//"only unique samples" probably just negates titan's internal deltaTime
+    //Process input on a regular interval, regardless of duplicate readings.
+    //Filtering for unique samples appears to undo what is probably Titan's
+    //internally managed deltaTime.
+    if (!calibrating) processInput();
     if (gyro_output == 1) {//Right stick
-
       if (winding) flickRotate();
-
-      //Logic from JSM operates on a scale of 0-1
+      //div100 because logic from JSM operates on a scale of 0-1
       if (processGyroStick(get_val(STICK_1_X) / 100.0, get_val(STICK_1_Y) / 100.0)) {} //returns a bool
     }
     if (gyro_output == 2) {//Left stick
-      //Logic from JSM operates on a scale of 0-1
+      //div100 because logic from JSM operates on a scale of 0-1
       if (processGyroStick(get_val(STICK_2_X) / 100.0, get_val(STICK_2_Y) / 100.0)) {} //returns a bool
     }
     delay = 0;
   }
 
-  //set_val must be outside the polling loop!
-  //lest values bounce back to 0 every cycle
+  /* set_val must be outside polling loop! Lest values bounce to 0 every cycle */
 
-  if  (gyro_output) {
+  if  (gyro_output) {//nonzero means joystick, not mouse
     if ((min_gyro_sens == 0.0 && max_gyro_sens == 0.0) && gyro_output == 1) {
       //hack to help with finding deadzones more quickly
       set_val(STICK_1_X, undeadzone_inner * 100.0);
@@ -296,15 +300,17 @@ main {
     //skip outer deadzone logic for the actual joystick
     //Gyro is still subject to deadzone and thus remains linear,
     //but stick now has access to game's accel for snappy stick turning
+    #define OUTER_OVERRIDE_VAL 95.0
     if (outerStickOverride == TRUE && winding == FALSE) {
-      if (get_actual(STICK_1_X) >= 95.0) {
-        set_val(STICK_1_X, (gyroStickX + undeadzone_outer) * 100.0);
-      } else if (get_actual(STICK_1_X) <= -95.0) {
-        set_val(STICK_1_X, (gyroStickX - undeadzone_outer) * 100.0);
-      } else if (get_actual(STICK_1_Y) >= 95.0) {
-        set_val(STICK_1_Y, (gyroStickY + undeadzone_outer) * 100.0);
-      } else if (get_actual(STICK_1_Y) <= -95.0) {
-        set_val(STICK_1_Y, (gyroStickY - undeadzone_outer) * 100.0);
+      fix32 stickX = get_actual(STICK_1_X);
+      fix32 stickY = get_actual(STICK_1_Y);
+      if (abs(stickX) >= OUTER_OVERRIDE_VAL) {
+        int8 signX = stickX > 0.0 ? 1 : -1;
+        set_val(STICK_1_X, (gyroStickX + (undeadzone_outer * (fix32)signX)) * 100.0);
+      }
+      if (abs(stickY) >= OUTER_OVERRIDE_VAL) {
+        int8 signY = stickY > 0.0 ? 1 : -1;
+        set_val(STICK_1_Y, (gyroStickY + (undeadzone_outer * (fix32)signY)) * 100.0);
       }
     } else if (outerStickOverride == TRUE && winding == TRUE) flickRotate2();
   }
@@ -597,8 +603,7 @@ void processMouse(fix32 x, fix32 y) {
   x /= mouseCalibration;
   y /= mouseCalibration;
 
-  //flickstick test
-  x += IN_FlickStick();  
+  if (DEBUG) x += IN_FlickStick();//flickstick test
 
   mouseXint = round(x + diffX);//add value lost from previous rounding
   mouseYint = round(y + diffY);//then round to nearest int
@@ -677,12 +682,9 @@ void processInput() {
     }
   }
 
-  gyroCalibration[0] = getCalibrationOffset(0);
-  gyroCalibration[1] = getCalibrationOffset(1);
-  gyroCalibration[2] = getCalibrationOffset(2);
-  calibratedGyro[0] = (gyroVelocity[0] - gyroCalibration[0]);
-  calibratedGyro[1] = (gyroVelocity[1] - gyroCalibration[1]);
-  calibratedGyro[2] = (gyroVelocity[2] - gyroCalibration[2]);
+  calibratedGyro[0] = gyroVelocity[0] - getCalibrationOffset(0);
+  calibratedGyro[1] = gyroVelocity[1] - getCalibrationOffset(1);
+  calibratedGyro[2] = gyroVelocity[2] - getCalibrationOffset(2);
 
   //smoothing (from wiki)
   if (gyro_smooth_threshold > 0.0) {
@@ -734,14 +736,15 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
       if (gyro_space == 1) {//PLAYER_TURN (from JSM)
         // grav dot gyro axis (but only Y (yaw) and Z (roll))
         worldYaw = -(normGravY * calibratedGyro0
-        + normGravZ * calibratedGyro2);//sign flip appeases mystery GPC wrath
+        + normGravZ * calibratedGyro2);/*sign flip appeases mystery GPC wrath*/
         int8 worldYawSign = worldYaw < 0.0 ? -1 : 1;
         #define yawRelaxFactor 2.0//shave off a fix32 via macro
         //const fix32 yawRelaxFactor = 2.0; // 60 degree buffer
         //const fix32 yawRelaxFactor = 1.41; // 45 degree buffer
         //const fix32 yawRelaxFactor = 1.15; // 30 degree buffer
         camera[0] = (fix32)worldYawSign
-        * min(abs(worldYaw) * yawRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));//TODO test with pythag
+        * min(abs(worldYaw) * yawRelaxFactor
+        , pythag(calibratedGyro0, calibratedGyro2));//TODO test with pythag
       } else {//PLAYER_LEAN (from JSM)
         // project local pitch axis (X) onto gravity plane
         // super simple since our point is only non-zero in one axis
@@ -769,9 +772,10 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
             //const fix32 rollRelaxFactor = 2.0; // 60 degree buffer
             //const fix32 rollRelaxFactor = 1.41; // 45 degree buffer
             //const fix32 rollRelaxFactor = 1.15; // 30 degree buffer
-            camera[0] = (fix32)worldRollSign
-            * min(abs(worldRoll) * rollRelaxFactor, sqrt(sq(calibratedGyro0) + sq(calibratedGyro2)));//TODO test with pythag
-            camera[0] *= sideReduction;
+            camera[0] = sideReduction
+            * ((fix32)worldRollSign
+            * min(abs(worldRoll) * rollRelaxFactor
+            , pythag(calibratedGyro0, calibratedGyro2)));//TODO test with pythag
           }
         }
       }
@@ -796,7 +800,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         // get global pitch factor (dot)
         camera[1] = +(pitchAxisX * calibratedGyro1
         + pitchAxisY * calibratedGyro0
-        + pitchAxisZ * calibratedGyro2);//sign flip appeases mystery GPC wrath
+        + pitchAxisZ * calibratedGyro2);/*sign flip appeases mystery GPC wrath*/
         // by the way, pinch it towards the nonsense limit
         camera[1] *= sideReduction;
 
@@ -824,11 +828,11 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
       }
 
       if (gyro_space == 3) {//WORLD_TURN
-        camera[0] = -(worldYaw);//sign flip appeases mystery GPC wrath
+        camera[0] = -(worldYaw);/*sign flip appeases mystery GPC wrath*/
       }
     }
   }
-  camera[0] *= gyroSensitivity;//Apply sens regardless of space
+  camera[0] *= gyroSensitivity;/*Apply sens regardless of space*/
   camera[1] *= gyroSensitivity;
   if (gyroBlocked) camera[0] = camera[1] = 0.0;
 }
@@ -872,7 +876,7 @@ fix32 getCalibrationOffset(int32 n) {
     return accumulatedOffset[0] / (fix32)offsetSamples;
   } else if (n==1) {
     return accumulatedOffset[1] / (fix32)offsetSamples;
-  }//flow dictates next line is technically else if
+  }
   return accumulatedOffset[2] / (fix32)offsetSamples;
 }
 
