@@ -54,7 +54,6 @@ optimize variables and memory usage
 --offsetSamples and the local count are SO SIMILAR
 --apply simpler if logic where possible (reference blinkerSync(), liveAdjust())
 --possibly convert thresholds to uint
---world space (and maybe player space) has redundant variables
 mouse_ring and mouse_area and scroll_wheel
 figure out why higher than 2ms kills cpu
 --implement function profiling
@@ -64,6 +63,7 @@ removed the "gyro on while joystick held" code, needs to be readded
 logger needs variable argument list length
 make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
 Just add sticks as a variable in the polling loop?
+be sure there are safeties when no config val exists in pmem
 */
 
 #include <mouse.gph>
@@ -231,6 +231,10 @@ main {
     }
   }
 
+  if (is_active(BUTTON_4)//while R1 is held...
+  && is_active(BUTTON_5)//while R2 is held...
+  && event_active(BUTTON_3)) combo_run(recalibrate);//press Start to recalibrate
+
   if (configMode) liveAdjust();
 
   static uint8 delay;
@@ -253,8 +257,8 @@ main {
         processInput();//collect only uinque samples in calibration
       }
     }
-    accelGrav[0]    = get_actual(ACCEL_1_Z);//GPC swaps Y and Z axis.
-    accelGrav[1]    = get_actual(ACCEL_1_X);//What I expect:
+    accelGrav[0]    = get_actual(ACCEL_1_Z);//GPC Y and Z axis differs vs JSM
+    accelGrav[1]    = get_actual(ACCEL_1_X);//What JSM expects: (I think?)
     accelGrav[2]    = get_actual(ACCEL_1_Y);//accel: Y up/down, Z front/back
     gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y yaw, Z roll
     gyroVelocity[1] = get_actual(GYRO_1_X);
@@ -650,9 +654,9 @@ void GYRO_OFF(bool val) {
   if (val) gyroBlocked = TRUE;
   else gyroBlocked = FALSE;
   //accelGrav[0] = get_actual(ACCEL_1_Z);
-  //accelGrav[1] = get_actual(ACCEL_1_X);//GPC eroneously swaps Y and Z axis
-  //accelGrav[2] = get_actual(ACCEL_1_Y);//accel: Y should be up/down, Z should be front/back
-  //gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y should be yaw, Z should be roll
+  //accelGrav[1] = get_actual(ACCEL_1_X);
+  //accelGrav[2] = get_actual(ACCEL_1_Y);
+  //gyroVelocity[0] = get_actual(GYRO_1_Z);
   //gyroVelocity[1] = get_actual(GYRO_1_X);
   //gyroVelocity[2] = get_actual(GYRO_1_Y);
 }
@@ -662,7 +666,10 @@ void processInput() {
   if (calibrating) {
     static uint16 count = 0;
     static int16 calibrationCount = -1;
+    //static uint16 calibrationCount = pmem_read(OFF_CC) <= 0 ? 1000 : 1000;//DEBUG
     if (calibrationCount == -1) pmem_read(OFF_CC, &calibrationCount);
+    //calibrationCount = pmem_read(OFF_CC) > 0 ? calibrationCount : 1000;
+    if (calibrationCount <= 0) calibrationCount = 1000;//default to 1000
     offsetSamples++;
     accumulatedOffset[0] += gyroVelocity[0];
     accumulatedOffset[1] += gyroVelocity[1];
