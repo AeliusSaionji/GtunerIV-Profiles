@@ -64,6 +64,7 @@ logger needs variable argument list length
 make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
 Just add sticks as a variable in the polling loop?
 be sure there are safeties when no config val exists in pmem
+separate blinkersync, liveadjust to a different script. we out of bytecode!
 */
 
 #include <mouse.gph>
@@ -686,6 +687,7 @@ void processInput() {
       led_reset();
       led_vmset(LED_3, 50, 50, 10);
       calibrating = FALSE;
+      count = 0;
     }
   }
 
@@ -895,7 +897,7 @@ void resetCalibration() {
 combo recalibrate {
   resetCalibration();
   wait(0);
-  wait(2000); //wait 2s for the user to take hands off controller
+  wait(3000); //wait 3s for the user to take hands off controller
   calibrating = TRUE;
 }
 
