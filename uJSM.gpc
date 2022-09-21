@@ -18,34 +18,39 @@ NOTES
 - The TitanTwo maps gyro data onto a range of 0.00-102.399994 rather than reporting angular velocity.
 - Beware math functions which may exceed fix32 range (check calls to pythag)
 
-TODO
+TODO - first release
+be sure there are safeties when no config val exists in pmem
+in heavybullets, jsm roughly 2x as sensitive given same settings?
+add a config.h to include
+--gyro off needs to be configurable
+make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
+validate accel sign against steam controller dsu
+--they're different. Check worldspace code against SC signage
+document the blink timing thing
+do the various sens functions still take accel into account?
+does override outer work for virtual_scale? It should.
+xim specific axis fix?
+flickstick joystick
+mouse out requires hid protocol
+condense get_actuals into one shared call
+
+TODO - eventually
 GYRO_SENS X Y
 read out 10s digit to segdisp in liveAdjust
 titan deltaTime internal? Resolve mystery once and for all.
-rename camera[] to two variables that make sense
+rename camera[] to two variables that make more sense
 --same with calibratedGyro
+--function names could probably do with a revision
 why did pythag cause a flip in world(?) space (retest with new pythag)
 why do I have a mystery pitch axis flip in world space
 kalman 1d?
-in heavybullets, jsm roughly 2x as sensitive given same settings?
-document the blink timing thing
 possibly use blinkerSync to map joystick curve, predict UNPOWER setting
-do the various sens functions still take accel into account?
---what did I mean by this
 read out 'gyro' to seg disp
-add a config.h to include
---gyro off needs to be configurable
-does override outer work for virtual_scale? It should.
 implement checks for calls that exceed data type (and definitely put the check in pythag)
-press start r2 r1 to start recalibrate combo
 revisit globally dividing gyro vals by -25
 possibly leverage IC config memory for user presets
-xim specific axis fix?
 fix left stick output (hold)
 user configurable smoothing buffer size in IC?
-flickstick
---mouse
---joystick
 --translate flickstick joystick hold to aim? feels like regular gyro aim cuts off too fast. check how jsm feels
 revisit winding flickstick
 --runs get_actual; surely it can pull from another area we already poll the stick
@@ -57,20 +62,19 @@ optimize variables and memory usage
 mouse_ring and mouse_area and scroll_wheel
 figure out why higher than 2ms kills cpu
 --implement function profiling
-validate accel sign against steam controller dsu
-check that += camera is really not necessary
 removed the "gyro on while joystick held" code, needs to be readded
 logger needs variable argument list length
-make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
-Just add sticks as a variable in the polling loop?
-be sure there are safeties when no config val exists in pmem
 separate blinkersync, liveadjust to a different script. we out of bytecode!
 */
 
 #include <mouse.gph>
 #include <keyboard.gph>
 #include <display.gph>
-#define SMOOTH_BUFFER_SIZE 32 //>45 May lag CPU, >90 very limited memory available
+#define SMOOTH_BUFFER_SIZE 32 //Steam Input's maximum is 40
+#define FLICKSTICK_THRESHOLD 0.995
+#define REAL_WORLD_CALIBRATION 2.911
+#define IN_GAME_SENS 0.3
+
 #define OFF_GO 0  // 1byte // GYRO_OUTPUT
 #define OFF_GS 1  // 1byte // GYRO_SPACE
 #define OFF_OP 2  // 1byte // output_protocol
@@ -79,7 +83,7 @@ separate blinkersync, liveadjust to a different script. we out of bytecode!
 #define OFF_OO 7  // 1bit  // outerStickOverride
 #define OFF_CB 7  // 1bit  // calibrating
 #define OFF_SD 7  // 1bit  // stickDisable
-#define OFF_FS 7  // 1bit  // flickstick
+#define OFF_FS 7  // 1bit  // flickStick
 #define OFF_WS 7  // 1bit  // winding
 #define OFF_NT 10 // 4byte // MIN_GYRO_THRESHOLD
 #define OFF_XT 14 // 4byte // MAX_GYRO_THRESHOLD
@@ -94,7 +98,6 @@ separate blinkersync, liveadjust to a different script. we out of bytecode!
 
 //Misc Globals
 uint16 offsetSamples;
-uint32 mouseSamples;
 fix32 gyroVelocity[3];//0 is Yaw (Z), 1 is Pitch (X), 2 is roll (Y)
 fix32 accelGrav[3];// Using order Z X Y again
 fix32 calibratedGyro[3];
@@ -104,10 +107,8 @@ fix32 gyroStickX;
 fix32 gyroStickY;
 bool configMode = FALSE;
 const bool DEBUG = TRUE;
-bool LOGGING = FALSE;
 const bool PROFILE = FALSE;
-uint32 profileAccum;
-uint8 ERR;
+const bool flickStick = TRUE;
 bool gyroBlocked;
 
 //Settings with initial defaults
@@ -124,8 +125,7 @@ fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
 fix32 unpower = 0.0;
 fix32 virtual_scale = 1.0;
-//mouseCalibration = (REAL_WORLD_CALIBRATION) / os_mouse_speed / IN_GAME_SENS);
-fix32 mouseCalibration = 1.0;
+fix32 mouseCalibration = REAL_WORLD_CALIBRATION / IN_GAME_SENS;
 //candidates for uint to save on mem
 fix32 undeadzone_inner = 0.0;
 fix32 undeadzone_outer = 0.0;
@@ -181,10 +181,10 @@ init {
   }
 
   if (DEBUG) {
-    LOGGING = FALSE;
-    gyro_output = 1;
+    gyro_output = 0;
     outerStickOverride = FALSE;
     calibrating = TRUE;
+    flickStick = TRUE;
     undeadzone_inner = 0.51;
     undeadzone_outer = 0.0;
     virtual_scale = 1.0;
@@ -241,10 +241,9 @@ main {
   static uint8 delay;
   delay += (uint8)elapsed_time();
   if (delay >= 2) {//loop 500Hz fastest, or Titan will be sad
-    //True Hz detection thanks to consoletuner discord member ME.
-    static fix32 old_gyros;
-    //int16 gX, gY, gZ;
     if (calibrating) {
+      //True Hz detection thanks to consoletuner discord member ME.
+      static fix32 old_gyros;
       fix32 f_gX = get_actual(GYRO_1_X);
       fix32 f_gY = get_actual(GYRO_1_Y);
       fix32 f_gZ = get_actual(GYRO_1_Z);
@@ -252,9 +251,6 @@ main {
       //Check for new values from sensor
       if (old_gyros != gyros) {
         old_gyros = gyros;
-        /*gX = GetRaw(f_gX);*/
-        /*gY = GetRaw(f_gY);*/
-        /*gZ = GetRaw(f_gZ);*/
         processInput();//collect only uinque samples in calibration
       }
     }
@@ -264,29 +260,38 @@ main {
     gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y yaw, Z roll
     gyroVelocity[1] = get_actual(GYRO_1_X);
     gyroVelocity[2] = get_actual(GYRO_1_Y);
-    //gyroVelocity[0] = (fix32)gZ/-25.0;//Divide by 25 seems near degrees/s.
-    //gyroVelocity[1] = (fix32)gX/-25.0;//That makes a sense, since it aligns
-    //gyroVelocity[2] = (fix32)gY/-25.0;//with accel's 25=gravity.
 
-    //Process input on a regular interval, regardless of duplicate readings.
+    //Process input regardless of duplicate readings.
     //Filtering for unique samples appears to undo what is probably Titan's
     //internally managed deltaTime.
     if (!calibrating) processInput();
+    if (gyro_output == 0) {//mouse
+      processMouse(camera[0], camera[1]);
+    }
     if (gyro_output == 1) {//Right stick
       if (winding) flickRotate();
       //div100 because logic from JSM operates on a scale of 0-1
-      if (processGyroStick(get_val(STICK_1_X) / 100.0, get_val(STICK_1_Y) / 100.0)) {} //returns a bool
+      processGyroStick(get_val(STICK_1_X) / 100.0, get_val(STICK_1_Y) / 100.0); //can return bool
     }
     if (gyro_output == 2) {//Left stick
       //div100 because logic from JSM operates on a scale of 0-1
-      if (processGyroStick(get_val(STICK_2_X) / 100.0, get_val(STICK_2_Y) / 100.0)) {} //returns a bool
+      processGyroStick(get_val(STICK_2_X) / 100.0, get_val(STICK_2_Y) / 100.0); //can return bool
     }
     delay = 0;
   }
 
   /* set_val must be outside polling loop! Lest values bounce to 0 every cycle */
 
-  if  (gyro_output) {//nonzero means joystick, not mouse
+  //Controller is still passed as a joystick in HID output, it may be active
+  if (!gyro_output && stickDisable) {//zero means mouse
+    set_val(STICK_1_X, 0.0);//disable right joystick
+    set_val(STICK_1_Y, 0.0);
+  } else if (virtual_scale != 1.0) {//Apply virtual_scale aka stickSensitivity
+    set_val(STICK_1_X, get_actual(STICK_1_X) * virtual_scale);
+    set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtual_scale);
+  }
+  if  (gyro_output) {//nonzero means joystick
+
     if ((min_gyro_sens == 0.0 && max_gyro_sens == 0.0) && gyro_output == 1) {
       //hack to help with finding deadzones more quickly
       set_val(STICK_1_X, undeadzone_inner * 100.0);
@@ -319,27 +324,10 @@ main {
       }
     } else if (outerStickOverride == TRUE && winding == TRUE) flickRotate2();
   }
-
-  if (gyro_output == 0) {//mouse
-    processMouse(camera[0], camera[1]);
-    //Controller is still passed as a joystick in HID output, it may be active
-    if (stickDisable) {
-      set_val(STICK_1_X, 0.0);//disable right joystick
-      set_val(STICK_1_Y, 0.0);
-    } else if (virtual_scale != 1.0) {//Apply virtual_scale aka stickSensitivity
-      set_val(STICK_1_X, get_actual(STICK_1_X) * virtual_scale);
-      set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtual_scale);
-    }
-  }
 }
 
-//thanks to consoletuner discord member ME.
-int16 GetRaw(fix32 val) {
-  return (int16)ceil(lerp(-32768f, 32767f, -((val + 100f) / 200f)));
-}
-
-#define B_S 4 //rolling average array size
 void blinkerSync() {
+  #define B_S 4 //rolling average array size
   static uint16 blinkHz = 1000;//start at 1 blink per 1000ms
   if (led_vmget(LED_1) == 0) {
     led_vmset(LED_1, 50, blinkHz - 50, 2);
@@ -420,7 +408,7 @@ combo flashRedGreen {
   wait(200);
   led_vmset(LED_3, 200, 800, -1);
 }
-combo flashGreenRed {//for undeadzone_outer, if added to liveAdjust
+combo flashGreenRed {
   led_reset();
   led_vmset(LED_3, 200, 800, -1);
   wait(0);
@@ -605,10 +593,8 @@ void commitSettings() {
 void processMouse(fix32 x, fix32 y) {
   static fix32 diffX, diffY;
   fix32 mouseXint, mouseYint;
-  x /= mouseCalibration;
-  y /= mouseCalibration;
 
-  if (DEBUG) x += IN_FlickStick();//flickstick test
+  if (flickStick) x += IN_FlickStick() * mouseCalibration;
 
   mouseXint = round(x + diffX);//add value lost from previous rounding
   mouseYint = round(y + diffY);//then round to nearest int
@@ -621,12 +607,12 @@ void processMouse(fix32 x, fix32 y) {
 }
 
 void flickRotate() {
-  static fix32 unwrap;
   //flick-rotate logic
   fix32 x = get_actual(STICK_1_X);
   fix32 y = get_actual(STICK_1_Y);
   fix32 length = pythag(x, y);
   fix32 lengthRad = atan2(x, -y) / PI * 100.0;
+  //static fix32 unwrap;
   //unwrap = lengthRad - round((lengthRad - unwrap) / 200.0)*200.0;//LUNS
   //if (abs(unwrap) > 150.0) unwrap = lengthRad;
   //fix32 clip = unwrap > 100.0 ? 100.0 : unwrap<-100.0 ?-100.0 : unwrap;
@@ -641,7 +627,6 @@ void flickRotate() {
 void flickRotate2() {
   //currently just breaks outder deadzone
   fix32 x = get_val(STICK_1_X);
-  fix32 y = get_val(STICK_1_Y);
   fix32 undeadzone_outerNew = undeadzone_outer * 100.0;
   if (x >= 98.0 - undeadzone_outerNew) {
     set_val(STICK_1_X, x + undeadzone_outerNew);
@@ -700,7 +685,7 @@ void processInput() {
     getTieredSmoothedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_smooth_threshold / 2.0, gyro_smooth_threshold);
   }
 
-  //tightening
+  //tightening (from wiki)
   if (gyro_tight_threshold > 0.0) {
     getTightenedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_tight_threshold);
   }
@@ -933,69 +918,6 @@ void getTieredSmoothedInput(fix32 *input0, fix32 *input1, fix32 threshold1, fix3
   *input1 = (*input1 * directWeight) + avg[1];
 }
 
-/*//smoothing from jsm
-fix32 gyroLength = pythag(calibratedGyro0, calibratedGyro1);
-// do gyro smoothing
-// convert gyro smooth time to number of samples
-uint16 numGyroSamples = GYRO_SMOOTH_TIME * 1000.0 / tick_time.get();
-if (numGyroSamples < 1) numGyroSamples = 1; // need at least 1 sample
-uint16 threshold = GYRO_SMOOTH_THRESHOLD;
-jc->GetSmoothedGyro(gyroX, gyroY, gyroLength, threshold / 2.0f, threshold, int(numGyroSamples), gyroX, gyroY);
-
-// now, honour gyro_cutoff_speed
-gyroLength = sqrt(sq(gyroX) + sq(gyroY));//TODO test with pythag
-auto speed = GYRO_CUTOFF_SPEED;
-auto recovery = GYRO_CUTOFF_RECOVERY;
-if (recovery > speed) {
-// we can use gyro_cutoff_speed
-float gyroIgnoreFactor = (gyroLength - speed) / (recovery - speed);
-if (gyroIgnoreFactor < 1.0f) {
-if (gyroIgnoreFactor <= 0.0f) {
-gyroX = gyroY = gyroLength = 0.0f;
-} else {
-gyroX *= gyroIgnoreFactor;
-gyroY *= gyroIgnoreFactor;
-gyroLength *= gyroIgnoreFactor;
-}
-}
-}
-else if (speed > 0.0f && gyroLength < speed) {
-// gyro_cutoff_recovery is something weird, so we just do a hard threshold
-gyroX = gyroY = gyroLength = 0.0f;
-}
-
-void GetSmoothedGyro(fix32 x, fix32 y, fix32 length, fix32 bottomThreshold, fix32 topThreshold, int maxSamples, fix32 &outX, fix32 &outY) {
-// this is basically the same as we use for smoothing flick-stick rotations, but because this deals in vectors, it's a slightly different function. Not worth abstracting until it'll be used in more ways
-// which item in the circular smoothing buffer will we write over?
-_frontGyroSample--;
-if (_frontGyroSample < 0)
-_frontGyroSample = MaxGyroSamples - 1;
-float immediateFactor;
-if (topThreshold <= bottomThreshold) {
-immediateFactor = length < bottomThreshold ? 0.0f : 1.0f;
-} else {
-immediateFactor = (length - bottomThreshold) / (topThreshold - bottomThreshold);
-}
-// clamp to [0, 1] range
-if (immediateFactor < 0.0f) immediateFactor = 0.0f;
-else if (immediateFactor > 1.0f) immediateFactor = 1.0f;
-float smoothFactor = 1.0f - immediateFactor;
-// now we can push the smooth sample (or as much of it as we want smoothed)
-FloatXY frontSample = _gyroSamples[_frontGyroSample] = { x * smoothFactor, y * smoothFactor };
-// and now calculate smoothed result
-float xResult = frontSample.x() / maxSamples;
-float yResult = frontSample.y() / maxSamples;
-for (int i = 1; i < maxSamples; i++) {
-int rotatedIndex = (_frontGyroSample + i) % MaxGyroSamples;
-frontSample = _gyroSamples[rotatedIndex];
-xResult += frontSample.x() / maxSamples;
-yResult += frontSample.y() / maxSamples;
-}
-// finally, add immediate portion
-outX = xResult + x * immediateFactor;
-outY = yResult + y * immediateFactor;
-}*/
-
 void getTightenedInput(fix32 *input0, fix32 *input1, fix32 threshold) {
   fix32 inputMagnitude = pythag(*input0, *input1);
   if (inputMagnitude < threshold) {
@@ -1074,28 +996,22 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
   }
 
-  if (LOGGING) logger(camera[0], camera[1], stickX, stickY, stickLength, stickVelocity, expectedX,
-  expectedY, targetGyroVelocity, gyroInStickStrength, gyroStickX, gyroStickY);
-
   return stickLength > undeadzone_inner;
 }
 
-//flickstick from yquake2
-#define FLICK_TIME 1
-static fix32 target_angle;
-static uint8 flick_progress = FLICK_TIME;
-fix32 IN_FlickStick() {
+fix32 IN_FlickStick() {//flickstick from yquake2 (thanks Protocultor)
+  #define FLICK_TIME 1
+  static uint8 flick_progress = FLICK_TIME;
   static bool is_flicking;
   static fix32 last_stick_angle;
-  //fix32 procesed = stick;
-  fix32 angle_change = 0.0;
-
-  fix32 stickX = get_actual(STICK_1_X);
-  fix32 stickY = get_actual(STICK_1_Y);
+  fix32 target_angle;
+  fix32 angle_change;
+  fix32 stickX = get_actual(STICK_1_X)/100.0;
+  fix32 stickY = get_actual(STICK_1_Y)/100.0;
   fix32 mag = pythag(stickX, stickY);
 
-  if (mag > 99.0) {// flick!
-    fix32 stick_angle = (180.0 / PI) * atan2(stickX, -stickY);
+  if (mag > FLICKSTICK_THRESHOLD) {// flick!
+    fix32 stick_angle = atan2(stickX, -stickY);
 
     if (!is_flicking) {
       // Flicking begins now, with a new target
@@ -1107,183 +1023,29 @@ fix32 IN_FlickStick() {
       angle_change = stick_angle - last_stick_angle;
 
       // angle wrap: https://stackoverflow.com/a/11498248/1130520
-      angle_change = mod(angle_change + 180.0, 360.0);
-      if (angle_change < 0.0) {
-        angle_change += 360.0;
-      }
-      angle_change -= 180.0;
+      angle_change = mod(angle_change + PI, 2.0 * PI);
+      angle_change = angle_change < 0.0 ? angle_change + PI : angle_change - PI;
     }
-
     last_stick_angle = stick_angle;
-  } else {
-    is_flicking = FALSE;
-  }
+  } else is_flicking = FALSE;
 
   // Flick Stick: flick in progress, changing the yaw angle to the target progressively
   if (flick_progress < FLICK_TIME) {
-    camera[0] += target_angle;// * rotation_factor[flick_progress];
     flick_progress++;
+    return rad2deg(target_angle);// * rotation_factor[flick_progress];
   }
-
-  return angle_change *10.0;
+  return rad2deg(angle_change);
 }
 
-
-
-/*//jsm flick
-// settings
-fix32 flickStickThreshold = 99;//TODO convert to uint8 later
-fix32 FlickTime = 0.1;
-fix32 TurnSmoothThreshold = 0.1;
-
-fix32 handleFlickStick() {
-  bool isFlicking;
-  bool ROTATE_ONLY;
-  uint8 flick_snap_mode = 0;
-  fix32 flick_rotation_counter;
-  #define FLICK_DEADZONE_ANGLE 0
-  fix32 stickX = get_actual(STICK_1_X);
-  fix32 stickY = get_actual(STICK_1_Y);
-  fix32 stickLength = pythag(stickX, stickY);
-
-  if (isFlicking) flickStickThreshold *= 0.9;
-  if (stickLength >= flickStickThreshold) {
-    fix32 stickAngle = atan2(-stickX, stickY);
-    if (!isFlicking) {
-      // bam! new flick!
-      isFlicking = TRUE;
-      if (!ROTATE_ONLY) {
-        if (flick_snap_mode > 0) {
-          //snapmode
-        }
-        if (abs(stickAngle) * (180.0 / PI) < FLICK_DEADZONE_ANGLE) stickAngle 0.0;
-        uint32 started_flick = system_time();
-        fix32 delta_flick = stickAngle;
-        fix32 flick_percent_done = 0.0;
-        //jc->ResetSmoothSample();
-        flick_rotation_counter = stickAngle; // track all rotation for this flick
-        //COUT << "Flick: " << setprecision(3) << stickAngle * (180.0f / (float)PI) << " degrees" << endl;
-      }
-    } else {
-      if (!FLICK_ONLY) {
-        // not new? turn camera?
-        fix32 lastStickAngle = atan2f(-lastOffsetX, lastOffsetY);
-        fix32 angleChange = stickAngle - lastStickAngle;
-        // https://stackoverflow.com/a/11498248/1130520
-        angleChange = mod(angleChange + PI, 2.0 * PI);
-        if (angleChange < 0) angleChange += 2.0 * PI;
-        angleChange -= PI;
-        flick_rotation_counter += angleChange; // track all rotation for this flick
-        fix32 flickSpeedConstant = isMouse ? REAL_WORLD_CALIBRATION * mouseCalibrationFactor / IN_GAME_SENS : 1.0;
-        fix32 flickSpeed = -(angleChange * flickSpeedConstant);
-        int8 maxSmoothingSamples = min(NumSamples, (int)ceil(64.0 / tick_time.get ));// target a max smoothing window size of 64ms
-        fix32 stepSize = 0.01;// and we only want full on smoothing when the stick change each time we poll it is approximately the minimum stick resolution
-        // the fact that we're using radians makes this really easy
-
-        //ROTATE_SMOOTH_OVERRIDE would go here if we implemented it
-
-        if (!isMouse) {
-          // convert to a velocity
-          camSpeedX *= 180.0 / (PI * 0.001 * tick_time.get);
-        }
-      }
-    }
-  } else if (isFlicking) {
-    // was a flick! how much was the flick and rotation?
-    if (!FLICK_ONLY && !ROTATE_ONLY) {
-      fix32 last_flick_and_rotation = abs(flick_rotation_counter) / (2.0 * PI);
-    }
-    isFlicking = false;
+uint32 profiler(char *func, uint32 startTime) {
+  uint32 elapsed = system_time() - startTime;
+  if (elapsed > 1) {
+    printf(func);
+    printf("took %dms to complete", elapsed);
   }
-  // do the flicking. this works very differently if it's mouse vs stick
-  if (isMouse) {
-    fix32 secondsSinceFlick = ((float)chrono::duration_cast<chrono::microseconds>(jc->time_now - jc->started_flick).count()) / 1000000.0;
-    fix32 newPercent = secondsSinceFlick / 0.1; //getSetting(SettingID::FLICK_TIME);
-
-    // don't divide by zero
-    if (abs(delta_flick) > 0.0) {
-      newPercent /= abs(delta_flick) / PI;
-    }
-
-    if (newPercent > 1.0) newPercent = 1.0;
-    // warping towards 1.0
-    fix32 oldShapedPercent = 1.0 - flick_percent_done;
-    oldShapedPercent *= oldShapedPercent;
-    oldShapedPercent = 1.0 - oldShapedPercent;
-    flick_percent_done = newPercent;
-    newPercent = 1.0 - newPercent;
-    newPercent *= newPercent;
-    newPercent = 1.0 - newPercent;
-    fix32 camSpeedChange = (newPercent - oldShapedPercent) * delta_flick * REAL_WORLD_CALIBRATION * -mouseCalibrationFactor / IN_GAME_SENS;
-    camSpeedX += camSpeedChange;
-
-    return camSpeedX;
-  } else {
-    fix32 secondsSinceFlick = ((float)chrono::duration_cast<chrono::microseconds>(jc->time_now - jc->started_flick).count()) / 1000000.0;
-    fix32 flickTime = abs(delta_flick) / (maxStickGameSpeed * PI / 180.f);
-
-    if (secondsSinceFlick <= flickTime) {
-      camSpeedX -= delta_flick >= 0 ? maxStickGameSpeed : -maxStickGameSpeed;
-    }
-
-    if (gyroOutput == flickStickOutput) {
-      gyroXVelocity += camSpeedX;
-      processGyroStick(jc, 0.f, 0.f, 0.f, flickStickOutput == GyroOutput::LEFT_STICK ? StickMode::LEFT_STICK : StickMode::RIGHT_STICK, false);
-    } else {
-      fix32 tempGyroXVelocity = gyroXVelocity;
-      fix32 tempGyroYVelocity = gyroYVelocity;
-      gyroXVelocity = camSpeedX;
-      gyroYVelocity = 0.0;
-      processGyroStick(jc, 0.f, 0.f, 0.f, flickStickOutput == GyroOutput::LEFT_STICK ? StickMode::LEFT_STICK : StickMode::RIGHT_STICK, true);
-      gyroXVelocity = tempGyroXVelocity;
-      gyroYVelocity = tempGyroYVelocity;
-    }
-
-    return 0.0;
-  }
-}*/
-
-uint32 profiler(char func, uint32 startTime) {
-  uint32 elapsed = startTime - system_time();
-  printf("func %d", elapsed);
   return elapsed;
 }
 
-void logger(fix32 camera0, fix32 camera1, fix32 stickX, fix32 stickY, fix32 stickLength,
-fix32 stickVelocity, fix32 expectedX, fix32 expectedY, fix32 targetGyroVelocity,
-fix32 gyroInStickStrength, fix32 gyroStickX, fix32 gyroStickY) {
-  static uint8 delayLog = 0;
-  delayLog++;
-  if (delayLog >= 75) {
-    printf("<big><br>\
-    camera0: %.1f<br>\
-    camera1: %.1f<br>\
-    stickX: %.2f<br>\
-    stickY: %.2f<br>\
-    stickLength: %.2f<br>\
-    stickVelocity: %.2f<br>\
-    expectedX: %.2f<br>\
-    expectedY: %.2f<br>\
-    targetGyroVelocity: %.2f<br>\
-    gyroInStickStrength: %.2f<br>\
-    gyroStickX: %.2f<br>\
-    gyroStickY: %.2f", camera0, camera1, stickX, stickY, stickLength, stickVelocity,
-    expectedX, expectedY, targetGyroVelocity, gyroInStickStrength, gyroStickX, gyroStickY);
-    delayLog = 0;
-  }
-}
-
-void logger2(fix32 input1, fix32 input2, fix32 input3) {
-  static uint8 delayLog = 0;
-  delayLog++;
-  if (delayLog >= 75) {
-    printf("<big><br>\
-    %.2f<br>\
-    %.2f<br>\
-    %.2f", input1, input2, input3);
-    delayLog = 0;
-  }
-}
 /* Interactive Config
 I make use of empty [sections] to be heading titles in the GUI.
 Then I group [detailed-config-name] elements under those empty sections.
