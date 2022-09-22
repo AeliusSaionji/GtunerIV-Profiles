@@ -83,8 +83,6 @@ jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
 #include <display.gph>
 #define SMOOTH_BUFFER_SIZE 32 //Steam Input's maximum is 40
 #define FLICKSTICK_THRESHOLD 0.995
-#define REAL_WORLD_CALIBRATION 2.911
-#define IN_GAME_SENS 0.3
 
 #define OFF_GO 0  // 1byte // GYRO_OUTPUT
 #define OFF_GS 1  // 1byte // GYRO_SPACE
@@ -106,6 +104,9 @@ jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
 #define OFF_UN 38 // 4byte // UNPOWER
 #define OFF_TT 42 // 4byte // gyro_tight_threshold
 #define OFF_ST 46 // 4byte // GYRO_SMOOTH_THRESHOLD
+#define OFF_DI 50 // 4byte // DEADZONE_INNER
+#define OFF_IG 54 // 4byte // IN_GAME_SENS
+#define OFF_RW 58 // 4byte // REAL_WORLD_CALIBRATION
 
 //Misc Globals
 uint16 offsetSamples;
@@ -117,8 +118,7 @@ fix32 camera[2];
 fix32 gyroStickX;
 fix32 gyroStickY;
 bool configMode = FALSE;
-const bool DEBUG = TRUE;
-const bool PROFILE = FALSE;
+const bool DEBUG = FALSE;
 const bool flickStick = TRUE;
 bool gyroBlocked;
 
@@ -136,14 +136,17 @@ fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
 fix32 unpower = 0.0;
 fix32 virtual_scale = 1.0;
-fix32 mouseCalibration = REAL_WORLD_CALIBRATION / IN_GAME_SENS;
+fix32 mouseCalibration;
 //candidates for uint to save on mem
 fix32 undeadzone_inner = 0.0;
 fix32 undeadzone_outer = 0.0;
+fix32 deadzone_inner = 0.15;
 fix32 gyro_smooth_threshold = 0.0;
 fix32 gyro_tight_threshold = 0.0;
 fix32 min_gyro_threshold = 0.0;
 fix32 max_gyro_threshold = 0.0;
+fix32 realWorldCalibration = 40.0;
+fix32 in_game_sens = 1.0;
 
 init {
   pmem_load();
@@ -162,6 +165,7 @@ init {
   //fix32s & int16s
   pmem_read(OFF_UI, &undeadzone_inner);
   pmem_read(OFF_UO, &undeadzone_outer);
+  pmem_read(OFF_DI, &deadzone_inner);
   pmem_read(OFF_VS, &virtual_scale);
   pmem_read(OFF_UN, &unpower);
   pmem_read(OFF_MS, &maxStickGameSpeed);
@@ -171,6 +175,10 @@ init {
   pmem_read(OFF_XS, &max_gyro_sens);
   pmem_read(OFF_TT, &gyro_tight_threshold);
   pmem_read(OFF_ST, &gyro_smooth_threshold);
+  pmem_read(OFF_RW, &realWorldCalibration);
+  pmem_read(OFF_IG, &in_game_sens);
+
+  mouseCalibration = realWorldCalibration / in_game_sens;
   min_gyro_threshold /= 25.0;//divide thresholds by a guestimated number,
   max_gyro_threshold /= 25.0;//such that they correspond to angular velocity
   gyro_tight_threshold /= 25.0;//(using same number as accel normalized to grav)
@@ -196,7 +204,7 @@ init {
     outerStickOverride = FALSE;
     calibrating = TRUE;
     flickStick = TRUE;
-    undeadzone_inner = 0.25;
+    undeadzone_inner = 0.75;
     undeadzone_outer = 0.0;
     virtual_scale = 1.0;
     unpower = 0.0;
@@ -208,6 +216,8 @@ init {
     gyro_space = 0;
     winding = FALSE;
     configMode = FALSE;
+    in_game_sens = 0.3;
+    realWorldCalibration = 2.911;
   }
 }
 
@@ -970,7 +980,6 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
 clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
   ) * (fix32)maxStickGameSpeed * virtual_scale;*/
 
-  fix32 deadzone_inner = 0.05;
   fix32 realSize = 1.0 - deadzone_inner;
   fix32 stickVelocity = pow(
   clamp((stickLength - deadzone_inner) / realSize, 0.0, 1.0), unpower
@@ -1086,7 +1095,7 @@ item        = User Preset 2:
 [Layout]
 [GYRO_OUTPUT]
 shortdesc = <code>GYRO_OUTPUT</code>
-byteoffset = OFF_GO
+byteoffset = 0
 bitsize = 8
 bitoffset = 0
 control = radiobox
@@ -1097,7 +1106,7 @@ item = LEFT_STICK (incomplete)
 group = true
 [Layout Flickstick checkbox]
 shortdesc = 
-byteoffset = OFF_FS
+byteoffset = 7
 bitsize = 1
 bitoffset = 3
 control = checkbox
@@ -1106,16 +1115,16 @@ item = Flickstick
 groupcol = true
 [Layout windingStick checkbox]
 shortdesc = 
-byteoffset = OFF_WS
+byteoffset = 7
 bitsize = 1
 bitoffset = 4
 control = checkbox
 default = 0
-item = Rotational stick aim
+item = Rotational stick aim (incomplete)
 group = true
 [Layout stickDisable checkbox]
 shortdesc = 
-byteoffset = OFF_SD
+byteoffset = 7
 bitsize = 1
 bitoffset = 2
 control = checkbox
@@ -1126,7 +1135,7 @@ group = true
 [Sensitivity]
 [MIN_GYRO_SENS]
 shortdesc = <code>MIN_GYRO_SENS</code>
-byteoffset = OFF_NS
+byteoffset = 18
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1138,7 +1147,7 @@ step = 001
 group = true
 [MAX_GYRO_SENS]
 shortdesc = <code>MAX_GYRO_SENS</code>
-byteoffset = OFF_XS
+byteoffset = 22
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1150,7 +1159,7 @@ step = 001
 group = true
 [MIN_GYRO_THRESHOLD]
 shortdesc = <code>MIN_GYRO_THRESHOLD</code>
-byteoffset = OFF_NT
+byteoffset = 10
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1162,7 +1171,7 @@ step = 001
 group = true
 [MAX_GYRO_THRESHOLD]
 shortdesc = <code>MAX_GYRO_THRESHOLD</code>
-byteoffset = OFF_XT
+byteoffset = 14
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1179,10 +1188,14 @@ MULTILINE
 control = info
 groupcol = true
 
-[Virtual Controller Stick Config]
+[Controller Config]
+[Virtual]
+shortdesc = <p style="text-align:center;"><h4>Virtual Controller Out</h4></p>
+control = info
+group = true
 [UNDEADZONE_INNER]
 shortdesc = <code>UNDEADZONE_INNER</code>
-byteoffset = OFF_UI
+byteoffset = 26
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1191,14 +1204,14 @@ decimals = 2
 step = 005
 minimum = 000
 maximum = 100
-groupcol = true
+group = true
 [SPACE UNDEADZONE_OUTER]
 control = space
 default = 5
 group = true
 [UNDEADZONE_OUTER]
 shortdesc = <code>UNDEADZONE_OUTER</code>
-byteoffset = OFF_UO
+byteoffset = 30
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1214,7 +1227,7 @@ default = 5
 group = true
 [VIRTUAL_SCALE]
 shortdesc = <code>VIRTUAL_SCALE</code>
-byteoffset = OFF_VS
+byteoffset = 34
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1230,7 +1243,7 @@ default = 5
 group = true
 [UNPOWER]
 shortdesc = <code>UNPOWER</code>
-byteoffset = OFF_UN
+byteoffset = 38
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1246,7 +1259,7 @@ default = 5
 group = true
 [VIRTUAL_STICK_CALIBRATION]
 shortdesc = <code>VIRTUAL_STICK_CALIBRATION</code>
-byteoffset = OFF_MS
+byteoffset = 5
 bitsize = 16
 bitoffset = 0
 control = spinbox
@@ -1255,15 +1268,42 @@ minimum = 0001
 maximum = 1000
 step = 000010
 group = true
-[test]
-shortdesc = text
+[Real]
+shortdesc = <p style="text-align:center;"><h4>Real Controller Input</h4></p>
 control = info
 groupcol = true
+[DEADZONE_INNER]
+shortdesc = <code>DEADZONE_INNER</code>
+byteoffset = 50
+bitsize = 32
+control = spinboxf
+default = 015
+decimals = 2
+minimum = 000
+maximum = 100
+group = true
+[SPACE UNDEADZONE_OUTER override]
+control = space
+default = 22
+group = true
+[UNDEADZONE_OUTER override]
+shortdesc =
+byteoffset = 7
+bitsize = 1
+bitoffset = 0
+control = checkbox
+default = 0
+item = Joystick overrides UNDEADZONE_OUTER
+group = true
+[SPACE bottom config]
+control = space
+default = 125
+group = true
 
 [Misc]
 [Calibrate gyro on startup]
 shortdesc = 
-byteoffset = OFF_CB
+byteoffset = 7
 bitsize = 1
 bitoffset = 1
 control = checkbox
@@ -1272,7 +1312,7 @@ item = Calibrate gyro on startup
 group = true
 [Calibration samples]
 shortdesc = Calibration samples
-byteoffset = OFF_CC
+byteoffset = 3
 bitsize = 16
 bitoffset = 0
 control = dial
@@ -1283,7 +1323,7 @@ step = 50
 group = true
 [gyro_tight_threshold]
 shortdesc = Tightening threshold
-byteoffset = OFF_TT
+byteoffset = 42
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1294,8 +1334,8 @@ maximum = 100000
 step = 100
 groupcol = true
 [GYRO_SMOOTH_THRESHOLD]
-shortdesc = GYRO_SMOOTH_THRESHOLD
-byteoffset = OFF_ST
+shortdesc = <code>GYRO_SMOOTH_THRESHOLD</code>
+byteoffset = 46
 bitsize = 32
 bitoffset = 0
 control = spinboxf
@@ -1305,11 +1345,10 @@ minimum = 000000
 maximum = 100000
 step = 100
 group = true
-
 [GYRO_SPACE]
-shortdesc = The logic by which we interpret the gyro
+shortdesc = <code>GYRO_SPACE</code>
 bitsize = 8
-byteoffset = OFF_GS
+byteoffset = 1
 control = combobox
 default = 0
 item = LOCAL
@@ -1317,11 +1356,38 @@ item = PLAYER_TURN
 item = PLAYER_LEAN
 item = WORLD_TURN
 item = WORLD_LEAN
+group = true
+[IN_GAME_SENS]
+shortdesc = <code>IN_GAME_SENS</code>
+byteoffset = 54
+bitsize = 32
+control = spinboxf
+decimals = 2
+default = 000100
+minimum = 000000
+maximum = 100000
+step = 000010
+groupcol = true
+[REAL_WORLD_CALIBRATION]
+shortdesc = <code>REAL_WORLD_CALIBRATION</code>
+byteoffset = 58
+bitsize = 32
+control = spinboxf
+decimals = 2
+default = 004000
+minimum = 000000
+maximum = 100000
+step = 000010
+group = true
+[SPACE bottom misc]
+control = space
+default = 48
+group = true
 
 [Output Protocol]
 shortdesc = Remember this output next time you run the script
 bitsize = 8
-byteoffset = OFF_OP
+byteoffset = 2
 control = combobox
 default = 0
 item = TitanTwo configured global default
