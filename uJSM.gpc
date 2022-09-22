@@ -33,6 +33,7 @@ xim specific axis fix?
 flickstick joystick
 mouse out requires hid protocol
 condense get_actuals into one shared call
+optionally apply undeadzone to stick
 
 TODO - eventually
 GYRO_SENS X Y
@@ -65,6 +66,16 @@ figure out why higher than 2ms kills cpu
 removed the "gyro on while joystick held" code, needs to be readded
 logger needs variable argument list length
 separate blinkersync, liveadjust to a different script. we out of bytecode!
+your gyrostick code is scaling the stick output weird, and jsm seems fine?
+--real stick axis can read 100 for a spell, script always has it changing
+--and 100% on any axis is a narrow target
+jsm gyrostick undeadzone code actually enforces a deadzone for the stick.
+--apply undeadzone to stick too and give pull request for jsm
+jsm is missing generic UNDEADZONE_INNER, outer, virtualscale, power
+--ez pull request if worth doing
+jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
+--implement azeron like test to find real size.
+
 */
 
 #include <mouse.gph>
@@ -181,15 +192,15 @@ init {
   }
 
   if (DEBUG) {
-    gyro_output = 0;
+    gyro_output = 1;
     outerStickOverride = FALSE;
     calibrating = TRUE;
     flickStick = TRUE;
-    undeadzone_inner = 0.51;
+    undeadzone_inner = 0.25;
     undeadzone_outer = 0.0;
     virtual_scale = 1.0;
     unpower = 0.0;
-    maxStickGameSpeed = 194;
+    maxStickGameSpeed = 90;
     min_gyro_sens = 1.0;
     max_gyro_sens = 1.0;
     gyro_tight_threshold = 0.0;
@@ -286,19 +297,17 @@ main {
   if (!gyro_output && stickDisable) {//zero means mouse
     set_val(STICK_1_X, 0.0);//disable right joystick
     set_val(STICK_1_Y, 0.0);
-  } else if (virtual_scale != 1.0) {//Apply virtual_scale aka stickSensitivity
+  } else {//Apply virtual_scale, even in mouse mode.
     set_val(STICK_1_X, get_actual(STICK_1_X) * virtual_scale);
     set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtual_scale);
   }
-  if  (gyro_output) {//nonzero means joystick
 
+  if  (gyro_output) {//nonzero means joystick
     if ((min_gyro_sens == 0.0 && max_gyro_sens == 0.0) && gyro_output == 1) {
       //hack to help with finding deadzones more quickly
       set_val(STICK_1_X, undeadzone_inner * 100.0);
-
       //hack to help with finding max stick game speed
       if (!calibrating && !configMode) blinkerSync();
-
     } else if (gyro_output == 1) {
       set_val(STICK_1_X, gyroStickX * 100.0);
       set_val(STICK_1_Y, gyroStickY * 100.0);
@@ -639,12 +648,6 @@ void flickRotate2() {
 void GYRO_OFF(bool val) {
   if (val) gyroBlocked = TRUE;
   else gyroBlocked = FALSE;
-  //accelGrav[0] = get_actual(ACCEL_1_Z);
-  //accelGrav[1] = get_actual(ACCEL_1_X);
-  //accelGrav[2] = get_actual(ACCEL_1_Y);
-  //gyroVelocity[0] = get_actual(GYRO_1_Z);
-  //gyroVelocity[1] = get_actual(GYRO_1_X);
-  //gyroVelocity[2] = get_actual(GYRO_1_Y);
 }
 
 void processInput() {
@@ -963,7 +966,16 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
     unpower = 1.0;
   }
 
-  fix32 stickVelocity = pow(clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower) * (fix32)maxStickGameSpeed * virtual_scale;
+  /*fix32 stickVelocity = pow(
+clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
+  ) * (fix32)maxStickGameSpeed * virtual_scale;*/
+
+  fix32 deadzone_inner = 0.05;
+  fix32 realSize = 1.0 - deadzone_inner;
+  fix32 stickVelocity = pow(
+  clamp((stickLength - deadzone_inner) / realSize, 0.0, 1.0), unpower
+  ) * (fix32)maxStickGameSpeed * virtual_scale;
+
   fix32 expectedX = 0.0;
   fix32 expectedY = 0.0;
   gyroStickX = 0.0;
@@ -980,10 +992,11 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   expectedX += camera[0] * 3.6; //the gyro readings top out at roughly 100.
   expectedY += camera[1] * 3.6; //100 * 3.6 = 360.
 
-  fix32 targetGyroVelocity = pythag(expectedX / 100.0, expectedY / 100.0) * 100.0; //sq(expected) exceeds fix32 range, oops!
+  fix32 targetGyroVelocity = pythag(expectedX, expectedY);
 
   // map gyro velocity to achievable range in 0-1
-  fix32 gyroInStickStrength = targetGyroVelocity >= (fix32)maxStickGameSpeed ? 1.0 : targetGyroVelocity / (fix32)maxStickGameSpeed;
+  fix32 gyroInStickStrength = targetGyroVelocity >= (fix32)maxStickGameSpeed
+  ? 1.0 : targetGyroVelocity / (fix32)maxStickGameSpeed;
   // UNPOWER curve
   if (unpower != 0.0) {
     gyroInStickStrength = pow(gyroInStickStrength, 1.0 / unpower);
@@ -1072,7 +1085,7 @@ item        = User Preset 1:
 item        = User Preset 2:
 [Layout]
 [GYRO_OUTPUT]
-shortdesc = GYRO_OUTPUT
+shortdesc = <code>GYRO_OUTPUT</code>
 byteoffset = OFF_GO
 bitsize = 8
 bitoffset = 0
@@ -1110,10 +1123,9 @@ default = 0
 item = Disable right joystick in mouse mode
 group = true
 
-[Sensitivities]
-[Acceleration]
+[Sensitivity]
 [MIN_GYRO_SENS]
-shortdesc = MIN_GYRO_SENS
+shortdesc = <code>MIN_GYRO_SENS</code>
 byteoffset = OFF_NS
 bitsize = 32
 bitoffset = 0
@@ -1125,7 +1137,7 @@ maximum = 10000
 step = 001
 group = true
 [MAX_GYRO_SENS]
-shortdesc = MAX_GYRO_SENS
+shortdesc = <code>MAX_GYRO_SENS</code>
 byteoffset = OFF_XS
 bitsize = 32
 bitoffset = 0
@@ -1137,7 +1149,7 @@ maximum = 10000
 step = 001
 group = true
 [MIN_GYRO_THRESHOLD]
-shortdesc = MIN_GYRO_THRESHOLD
+shortdesc = <code>MIN_GYRO_THRESHOLD</code>
 byteoffset = OFF_NT
 bitsize = 32
 bitoffset = 0
@@ -1147,9 +1159,9 @@ default = 000000
 minimum = 000000
 maximum = 100000
 step = 001
-groupcol = true
+group = true
 [MAX_GYRO_THRESHOLD]
-shortdesc = MAX_GYRO_THRESHOLD
+shortdesc = <code>MAX_GYRO_THRESHOLD</code>
 byteoffset = OFF_XT
 bitsize = 32
 bitoffset = 0
@@ -1160,10 +1172,16 @@ minimum = 000000
 maximum = 100000
 step = 0010
 group = true
+[mini info Sensitivity]
+shortdesc =<<<MULTILINE
+<p style="text-align:center;color:grey;"><img src="data:image/png;base64,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" ><br>SENS min=max (or max=0) disables acceleration.</p>
+MULTILINE
+control = info
+groupcol = true
 
 [Virtual Controller Stick Config]
 [UNDEADZONE_INNER]
-shortdesc = UNDEADZONE_INNER
+shortdesc = <code>UNDEADZONE_INNER</code>
 byteoffset = OFF_UI
 bitsize = 32
 bitoffset = 0
@@ -1179,7 +1197,7 @@ control = space
 default = 5
 group = true
 [UNDEADZONE_OUTER]
-shortdesc = UNDEADZONE_OUTER
+shortdesc = <code>UNDEADZONE_OUTER</code>
 byteoffset = OFF_UO
 bitsize = 32
 bitoffset = 0
@@ -1192,10 +1210,10 @@ maximum = 100
 group = true
 [SPACE VIRTUAL_SCALE]
 control = space
-default = 25
+default = 5
 group = true
 [VIRTUAL_SCALE]
-shortdesc = VIRTUAL_SCALE
+shortdesc = <code>VIRTUAL_SCALE</code>
 byteoffset = OFF_VS
 bitsize = 32
 bitoffset = 0
@@ -1208,10 +1226,10 @@ step = 001
 group = true
 [SPACE UNPOWER]
 control = space
-default = 25
+default = 5
 group = true
 [UNPOWER]
-shortdesc = UNPOWER
+shortdesc = <code>UNPOWER</code>
 byteoffset = OFF_UN
 bitsize = 32
 bitoffset = 0
@@ -1222,29 +1240,12 @@ minimum = 000
 maximum = 200
 step = 010
 group = true
-[mini info UNDEADZONE]
-shortdesc = Prevent game deadzone from interfering with gyro aim
-control = info
-groupcol = true
-[SPACE mini info VIRTUAL_SCALE]
+[SPACE VIRTUAL_STICK_CALIBRATION]
 control = space
-default = 60
+default = 5
 group = true
-[mini info VIRTUAL_SCALE]
-shortdesc = Scale virtual stick output
-control = info
-group = true
-[SPACE mini info UNPOWER]
-control = space
-default = 25
-group = true
-[mini info UNPOWER]
-shortdesc = Counter game power curve
-control = info
-group = true
-
 [VIRTUAL_STICK_CALIBRATION]
-shortdesc = VIRTUAL_STICK_CALIBRATION
+shortdesc = <code>VIRTUAL_STICK_CALIBRATION</code>
 byteoffset = OFF_MS
 bitsize = 16
 bitoffset = 0
@@ -1253,8 +1254,9 @@ default = 360
 minimum = 0001
 maximum = 1000
 step = 000010
-[mini info VIRTUAL_STICK_CALIBRATION]
-shortdesc = The maximum speed you can look around in game, in degrees per second
+group = true
+[test]
+shortdesc = text
 control = info
 groupcol = true
 
@@ -1302,15 +1304,6 @@ default = 0
 minimum = 000000
 maximum = 100000
 step = 100
-group = true
-[Outer deadzone override]
-shortdesc = 
-byteoffset = OFF_OO
-bitsize = 1
-bitoffset = 0
-control = checkbox
-default = 0
-item = stick outer deadzone
 group = true
 
 [GYRO_SPACE]
