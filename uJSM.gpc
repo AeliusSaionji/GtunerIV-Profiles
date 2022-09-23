@@ -1546,6 +1546,8 @@ Most of the concepts used and a lot of the code came from Jibb Smart's gyro wiki
 <a href=http://gyrowiki.jibbsmart.com>http://gyrowiki.jibbsmart.com</a>
 As well as the JoyShockMapper project by Jibb Smart and Electronicks:
 <a href=https://github.com/Electronicks/JoyShockMapper>https://github.com/Electronicks/JoyShockMapper</a>
+
+Also thanks to anyone who helped me along the way, special thanks to consoletuner mod <code>ME.</code> and the developer of RawAccel.
 Thank you!
 MULTILINE
 control = info
