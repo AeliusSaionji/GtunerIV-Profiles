@@ -24,19 +24,17 @@ in heavybullets, jsm roughly 2x as sensitive given same settings?
 add a config.h to include
 --gyro off needs to be configurable
 make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
-validate accel sign against steam controller dsu
---they're different. Check worldspace code against SC signage
 document the blink timing thing
 do the various sens functions still take accel into account?
 does override outer work for virtual_scale? It should.
 xim specific axis fix?
-flickstick joystick
-mouse out requires hid protocol
-condense get_actuals into one shared call
-optionally apply undeadzone to stick
+remove rotational
 
 TODO - eventually
 GYRO_SENS X Y
+flickstick joystick
+validate accel sign against steam controller dsu
+--they're different. Check worldspace code against SC signage
 read out 10s digit to segdisp in liveAdjust
 titan deltaTime internal? Resolve mystery once and for all.
 rename camera[] to two variables that make more sense
@@ -1113,7 +1111,8 @@ gyro mouse flickstick jsm joyshockmapper dualsense steamcontroller dualshock ds4
 shortdesc =
 control = config
 item        = Steam Controller:#03:00FA#07:02#32:00000000
-item        = Deadzone and VIRTUAL_STICK_CALIBRATION Finder:01#07:00#12:000000000000000000004000
+item        = Deadzone Finder:
+item        = VIRTUAL_STICK_CALIBRATION Finder:
 item        = Acceleration Example:#0A:00050000025800000000800000020000
 item        = Threshold Testing Example (Motion only above 500 degrees per second):#0A:01F4000001F402900000000000010000
 item        = User Preset 1:
@@ -1126,7 +1125,7 @@ bitsize = 8
 bitoffset = 0
 control = radiobox
 default = 0
-item = MOUSE
+item = MOUSE (requires output protocol: HID)
 item = RIGHT_STICK
 item = LEFT_STICK (incomplete)
 group = true
@@ -1457,7 +1456,7 @@ shortdesc = <<<MULTILINE
 Gyro is functionally equivalent to mouse, and is best experienced when mapped to a mouse.
 Of course, you won't be able to use mouse mode on most console games, but mouse mode does work pretty well when paired with a XIM.
 
-Joystick out is emulating a joystick, but how this feels will vary from game to game. In fact, since gyro is basically a mouse, it will feel a lot like you're trying to map a mouse to the joystick! This code is not as comprehensive as XIM smart translators, though.
+RIGHT_STICK (and LEFT_STICK) is emulating a joystick, but how this feels will vary from game to game. In fact, since gyro is basically a mouse, it will feel a lot like you're trying to map a mouse to the joystick! This code is not as comprehensive as XIM smart translators, though.
 
 NOTE: the HID output protocol still outputs the whole controller as a joystick, and the XIM does see it! Controller remaps will still take effect. Disable the right joystick to prevent double output where it may occur.
 Alternatively, you can use Gtuner to configure device options and check "Disable Joystick from Multi Interface HID output".
@@ -1467,85 +1466,75 @@ control = info
 [Info: Flickstick]
 shortdesc = <<<MULTILINE
 The new aim method that I believe will one day replace traditional stick aim!
+From the gyro wiki: <code>"Flick stick maps the angle of one of the thumbsticks (in the following examples, the right stick) to the same angle turn in-game."</code> In other words, it gives you twinstick shooter controls in first person shooter games. It's best to see it in action: watch this introductory video to get the idea <a href="https://www.youtube.com/watch?v=GzbZq4OjEwE">https://www.youtube.com/watch?v=GzbZq4OjEwE</a>
 MULTILINE
 control = info
 
-[Info: Rotational stick aim]
-shortdesc = <<<MULTILINE
-Since flickstick on joystick output is severely compromised, I have implemented a component of flickstick: rotation. This keeps normal left/right stick aim, but allows for fine precision aim by pushing the stick forward and moving left or right. This allows you to keep using sensitivities that would otherwise be too high for a stick (which is a prerequisite for XIM). Normal left/right will allow for snappy turns, rotation allows for precise slow aim. Disables Y axis, so you'll want to map GYRO_OFF to something to re-orient yourself vertically.
+[Info: VIRTUAL_SCALE]
+shortdesc =<<<MULTILINE
+This is simply the sensitivity of the virtual joystick. As with mouse to joystick, it's desirable for gyro to joystick to set the game sensitivity to maximum- use this to lower the sensitivity of your real joystick to usable levels.
 MULTILINE
 control = info
 
-[Info: Sensitivities]
+[Info: UNPOWER]
 shortdesc = <<<MULTILINE
-Gyro Sensitivity gets multiplied against sensor data to increase or decrease the output speed.
-
-Stick sensitivity configures the sensitivity of the joystick in the same way, independently of gyro motion.
-
-Unpower: If a game processes the joystick with a power curve, setting the exponent of the curve here will cancel out that curve for gyro output.
+<code>UNPOWER</code>, as described by the JSM README: <code>A power curve is often applied to stick input to give players more with small movements at the cost of less precision with very large movements. If you know what the exponent is, putting it here will counter that power curve to hopefully give you linearly proportional camera control. The default value of 0 does nothing, which is effectively the same as setting it to 1, since that assumes a linear curve.</code>
 MULTILINE
 control = info
 
-[Info: Virtual Controller]
+[Info: VIRTUAL_STICK_CALIBRATION]
 shortdesc = <<<MULTILINE
-VIRTUAL_STICK_CALIBRATION
-MULTILINE
-control = info
+<code>VIRTUAL_STICK_CALIBRATION</code> is a concept from JSM; it's supposed to represent how fast (in degrees/s) the game allows you to look around using the stick. If you set it correctly in JSM, (game stick logic permitting) the motion of the controller will be translated 1:1 to the game. Additionally, this allows you to translate your preferred sensitivity between different games.
 
-[Info: Max Stick Game Speed]
-shortdesc = <<<MULTILINE
-Max stick game speed is a concept from JSM; it's supposed to represent how fast (in degrees/s) the game allows you to look around using the stick. If you set it correctly in JSM, (game stick logic permitting) the motion of the controller will be translated 1:1 to the game. Additionally, this allows you to translate your preferred sensitivity between different games.
-
-However! Most games have a low max speed which will clip fast movements (you know this if you've used mouse input on your Titan), the TitanTwo does not report gyro data to the script in degrees/s, and the specific number (unique per game) is pretty difficult to determine with precision. 
+However! Most games have a low max speed which will clip fast movements (you know this if you've used mouse input on your Titan or XIM), the TitanTwo does not report gyro data to the script in degrees/s, and the specific number (unique per game) is pretty difficult to determine with precision. 
 
 What this setting does in abstract is scale your motion to the range of the virtual joystick. Lower values will reach 100% output quicker- allowing you to easily hit the fastest turn speed with minimal motion, but move too fast and the game camera won't keep up. Higher values allow more room for quicker and more aggressive motion (like quick panic flicks), but you start to lose precision for slower movements.
 
-You can guestimate the game's value with a timer. Set inner deadzone to 100% and enable Deadzone Finder. This will cause you to spin around in game at max speed. Look down at the ground in game and find a line to pivot around. Start the timer and count the number of complete rotations your character does in a given amount of time. The longer you let the timer run, the more accurate your estimate will be. Multiply [number of rotations] * 360, and divide that by [seconds] to get your max stick game speed. If you spun around 12 times in 20 seconds, then (12 * 360) / 20 = 216.
+Remember to set the in game stick sensitivity to its maximum!
+
+I've implemented a helper to guestimate the game's value with controller or Titan LED. Select the preset <code>VIRTUAL_STICK_CALIBRATION Finder</code>. This will cause you to spin around in game at the maximum speed. Look down at the ground in game and find an object that will help you track your rotations.
+Press the southmost face button every time you do one full rotation. The LED will start to blink at the same rate as your rotation. If the LED blink is synchronized with a few turns, that's probably close enough.
+
+You can also dial this in with the DPAD and the northmost face button. Left/Right to adjust the timing by 1ms, Up/Down for 10ms, and North will reset the start of the blink interval.
+
+Press START to save the value to Titan pmem. The value is also reported in the Gtuner console.
 MULTILINE
 control = info
 
 [Info: Un-Deadzone]
 shortdesc = <<<MULTILINE
 Each game has its own joystick inner deadzone set by the developers.
-If this script knows where the deadzone is, it can use that as the starting point for gyro outpoint, effectively eliminating the inner deadzone.
+If uJSM knows where the deadzone is, it can use that as the starting point for gyro outpoint, entirely eliminating the game's inner deadzone.
 
-The outer deadzone can be used to avoid non-linear jumps in sensitivity programmed into the game, which feel unnatural with gyro aim.
+<code>UNDEADZONE_OUTER</code> can be used to avoid non-linear jumps in sensitivity programmed into the game, which feel unnatural with gyro aim.
 
-Note that outer deadzone config option is asking for the size of the deadzone, not where the deadzone starts.
-If there's a jump in acceleration at 92% stick tilt, you want an 8% outer deadzone.
+Note that both <code>UNDEADZONE_INNER</code> and <code>UNDEADZONE_OUTER</code> options are asking for the size of the deadzone, not where the deadzone starts. If there's a jump in acceleration at 92% stick tilt, you want an 8% outer deadzone.
 
-Deadzone Finder helps precisely find inner deadzone. Titan will tilt the joystick at the configured inner deadzone. Find the highest value of inner deadzone where the camera DOESN'T move. Start at 25% and work your way up or down from there.
+<code>Deadzone Finder</code> preset helps precisely find inner deadzone. When active, Titan will tilt the right joystick at the configured inner deadzone. Find the highest value of <code>UNDEADZONE_INNER</code> where the camera DOESN'T move. Start at 25% and work your way up or down from there.
 
-Stick overrides outer deadzone: Some games have a sharp jump in acceleration when the joystick is tilted near 100%.
+<br><code>Joystick overrides UNDEADZONE_OUTER</code>: Some games have a sharp jump in acceleration when the joystick is tilted near 100%.
 This is undesirable for gyro aim, but might be desirable while using the stick because it helps you turn around faster in game.
-MULTILINE
-control = info
-
-[Info: Acceleration]
-shortdesc = <<<MULTILINE
-Define a linear acceleration between the two sensitivities at the given movement speed thresholds.
-There will be no acceleration below the min threshold nor above the max threshold.
 MULTILINE
 control = info
 
 [Info: Misc]
 shortdesc = <<<MULTILINE
-Calibrate gyro on startup: Place the controller on a flat surface and do not touch it until the LEDs stop flashing: they'll turns green when finished.
+<code>Calibrate gyro on startup</code>: Place the controller on a flat surface and do not touch it until the LEDs stop flashing: they'll turns green when finished.
 The script is averaging sensor data to filter out unwanted sensor noise: this helps fight drift.
 NOTE! Steam controller will enter an idle mode after about 6 seconds. You may have to touch one of the pads to get calibration to continue. Do so very gently, so as to not accidentally add any movement during calibration.
 
-Calibration samples: How many samples to collect during calibration. The controller's true polling rate will limit how fast samples are collected.
+<code>Calibration samples</code>: How many samples to collect during calibration. The controller's true polling rate will limit how fast samples are collected.
 
 Tightening squishes output towards zero below the threshold, used to help prevent jitter when trying to hold still at higher sensitivities.
 
-Smoothing helps reduce jitter below the threshold, useful for unsteady hands, or to smooth out noise with higher sensitivities.
+Smoothing helps reduce jitter below the threshold, useful for unsteady hands, or to smooth out noise with higher sensitivities. You can adjust the size of <code>SMOOTH_BUFFER_SIZE</code> from the source code. Note that smoothing necessarily adds latency, the bigger the buffer the greater the latency, and the TitanTwo does not have the resources for very high buffer values.
 MULTILINE
 control = info
 
 [Info: Speed Thresholds?]
 shortdesc = <<<MULTILINE
 Configure thresholds in values of degrees per second: how fast you are turning the controller. Unfortunately the TitanTwo doesn't present raw gyro data in this way, so the threshold number here is imperfect. I've tried to play with the numbers to make it close to reality, but you may find the settings are not exactly the same as what you'd use in JSM for PC.
-Try values like 10 when trying to set a threshold that activates when moving as slow as possible. The highest sensible values is somewhere under 1000.
+Try values near 10 when trying to set a threshold that activates when moving as slow as possible. The highest sensible values is somewhere under 1000.
 
 You can test where a threshold is by enabling acceleration with MIN_GYRO_SENS 0, MAX_GYRO_SENS 1. Then set MIN_GYRO_THRESHOLD to the desired test number, MAX_GYRO_THRESHOLD to one above that, and see how fast you must move the controller to get a response.
 MULTILINE
