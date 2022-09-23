@@ -107,6 +107,7 @@ jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
 #define OFF_DI 50 // 4byte // DEADZONE_INNER
 #define OFF_IG 54 // 4byte // IN_GAME_SENS
 #define OFF_RW 58 // 4byte // REAL_WORLD_CALIBRATION
+#define OFF_DO 62 // 4byte // DEADZONE_OUTER
 
 //Misc Globals
 uint16 offsetSamples;
@@ -115,16 +116,22 @@ fix32 accelGrav[3];// Using order Z X Y again
 fix32 calibratedGyro[3];
 fix32 accumulatedOffset[3];
 fix32 camera[2];
+fix32 stick1X;
+fix32 stick1Y;
+fix32 stick2X;
+fix32 stick2Y;
+fix32 stick1Length;
+fix32 stick2Length;
 fix32 gyroStickX;
 fix32 gyroStickY;
 bool configMode = FALSE;
-const bool DEBUG = FALSE;
-const bool flickStick = TRUE;
+const bool DEBUG = TRUE;
 bool gyroBlocked;
 
 //Settings with initial defaults
 const uint8 gyro_output = 1; //0:mouse, 1:right stick, 2:left stick
 const uint8 outProtocol = 0;
+const bool flickStick = FALSE;
 const bool calibrating = TRUE;
 const bool outerStickOverride = TRUE;
 const bool stickDisable = FALSE;
@@ -141,6 +148,7 @@ fix32 mouseCalibration;
 fix32 undeadzone_inner = 0.0;
 fix32 undeadzone_outer = 0.0;
 fix32 deadzone_inner = 0.15;
+fix32 deadzone_outer = 0.1;
 fix32 gyro_smooth_threshold = 0.0;
 fix32 gyro_tight_threshold = 0.0;
 fix32 min_gyro_threshold = 0.0;
@@ -159,13 +167,14 @@ init {
   outerStickOverride = (pmem_read(OFF_OO)>>0) & 0b1;
   calibrating        = (pmem_read(OFF_CB)>>1) & 0b1;
   stickDisable       = (pmem_read(OFF_SD)>>2) & 0b1;
-  flickstick         = (pmem_read(OFF_FS)>>3) & 0b1;
+  flickStick         = (pmem_read(OFF_FS)>>3) & 0b1;
   winding            = (pmem_read(OFF_WS)>>4) & 0b1;
 
   //fix32s & int16s
   pmem_read(OFF_UI, &undeadzone_inner);
   pmem_read(OFF_UO, &undeadzone_outer);
   pmem_read(OFF_DI, &deadzone_inner);
+  pmem_read(OFF_DO, &deadzone_outer);
   pmem_read(OFF_VS, &virtual_scale);
   pmem_read(OFF_UN, &unpower);
   pmem_read(OFF_MS, &maxStickGameSpeed);
@@ -200,12 +209,14 @@ init {
   }
 
   if (DEBUG) {
-    gyro_output = 1;
+    gyro_output = 0;
     outerStickOverride = FALSE;
     calibrating = TRUE;
-    flickStick = TRUE;
-    undeadzone_inner = 0.75;
+    flickStick = FALSE;
+    undeadzone_inner = 0.0;
     undeadzone_outer = 0.0;
+    deadzone_inner = 0.15;
+    deadzone_outer = 0.25;
     virtual_scale = 1.0;
     unpower = 0.0;
     maxStickGameSpeed = 90;
@@ -218,6 +229,7 @@ init {
     configMode = FALSE;
     in_game_sens = 0.3;
     realWorldCalibration = 2.911;
+    mouseCalibration = realWorldCalibration / in_game_sens;
   }
 }
 
@@ -281,7 +293,13 @@ main {
     gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y yaw, Z roll
     gyroVelocity[1] = get_actual(GYRO_1_X);
     gyroVelocity[2] = get_actual(GYRO_1_Y);
-
+    stick1X = get_actual(STICK_1_X) / 100.0;//JSM logic operates on 0-1
+    stick1Y = get_actual(STICK_1_Y) / 100.0;
+    stick2X = get_actual(STICK_2_X) / 100.0;
+    stick2Y = get_actual(STICK_2_Y) / 100.0;
+    stick1Length = pythag(stick1X, stick1Y);
+    stick2Length = pythag(stick2X, stick2Y);
+    
     //Process input regardless of duplicate readings.
     //Filtering for unique samples appears to undo what is probably Titan's
     //internally managed deltaTime.
@@ -291,12 +309,10 @@ main {
     }
     if (gyro_output == 1) {//Right stick
       if (winding) flickRotate();
-      //div100 because logic from JSM operates on a scale of 0-1
-      processGyroStick(get_val(STICK_1_X) / 100.0, get_val(STICK_1_Y) / 100.0); //can return bool
+      processGyroStick(stick1X, stick1Y); //can return bool
     }
     if (gyro_output == 2) {//Left stick
-      //div100 because logic from JSM operates on a scale of 0-1
-      processGyroStick(get_val(STICK_2_X) / 100.0, get_val(STICK_2_Y) / 100.0); //can return bool
+      processGyroStick(stick2X, stick2Y); //can return bool
     }
     delay = 0;
   }
@@ -307,9 +323,9 @@ main {
   if (!gyro_output && stickDisable) {//zero means mouse
     set_val(STICK_1_X, 0.0);//disable right joystick
     set_val(STICK_1_Y, 0.0);
-  } else {//Apply virtual_scale, even in mouse mode.
-    set_val(STICK_1_X, get_actual(STICK_1_X) * virtual_scale);
-    set_val(STICK_1_Y, get_actual(STICK_1_Y) * virtual_scale);
+  } else {//Apply controller options, even in mouse mode.
+    set_val(STICK_1_X, processStick(stick1X, stick1Length) * 100.0);
+    set_val(STICK_1_Y, processStick(stick1Y, stick1Length) * 100.0);
   }
 
   if  (gyro_output) {//nonzero means joystick
@@ -331,14 +347,12 @@ main {
     //but stick now has access to game's accel for snappy stick turning
     #define OUTER_OVERRIDE_VAL 95.0
     if (outerStickOverride == TRUE && winding == FALSE) {
-      fix32 stickX = get_actual(STICK_1_X);
-      fix32 stickY = get_actual(STICK_1_Y);
-      if (abs(stickX) >= OUTER_OVERRIDE_VAL) {
-        int8 signX = stickX > 0.0 ? 1 : -1;
+      if (abs(stick1X) >= OUTER_OVERRIDE_VAL) {
+        int8 signX = stick1X > 0.0 ? 1 : -1;
         set_val(STICK_1_X, (gyroStickX + (undeadzone_outer * (fix32)signX)) * 100.0);
       }
-      if (abs(stickY) >= OUTER_OVERRIDE_VAL) {
-        int8 signY = stickY > 0.0 ? 1 : -1;
+      if (abs(stick1Y) >= OUTER_OVERRIDE_VAL) {
+        int8 signY = stick1Y > 0.0 ? 1 : -1;
         set_val(STICK_1_Y, (gyroStickY + (undeadzone_outer * (fix32)signY)) * 100.0);
       }
     } else if (outerStickOverride == TRUE && winding == TRUE) flickRotate2();
@@ -970,6 +984,7 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   //This is not the case with JSM
   fix32 stickLength = pythag(stickX, stickY);
   fix32 livezoneSize = 1.0 - undeadzone_outer - undeadzone_inner;
+  fix32 realSize = 1.0 - deadzone_outer - deadzone_inner;
   //in order to correctly combine gyro and stick, we need to calculate what the stick
   //aiming is supposed to be doing, add gyro result to it, and convert back to stick
   if (unpower == 0.0) {
@@ -980,7 +995,6 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
 clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
   ) * (fix32)maxStickGameSpeed * virtual_scale;*/
 
-  fix32 realSize = 1.0 - deadzone_inner;
   fix32 stickVelocity = pow(
   clamp((stickLength - deadzone_inner) / realSize, 0.0, 1.0), unpower
   ) * (fix32)maxStickGameSpeed * virtual_scale;
@@ -1019,6 +1033,18 @@ clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
   }
 
   return stickLength > undeadzone_inner;
+}
+
+fix32 processStick(fix32 stick, fix32 stickLength) {
+  if (unpower == 0.0) {
+    unpower = 1.0;
+  }
+  fix32 realSize = 1.0 - deadzone_outer - deadzone_inner;
+  fix32 stickVelocity = pow(
+  clamp((stickLength - deadzone_inner) / realSize, 0.0, 1.0), unpower
+  ) * virtual_scale;
+
+  return (stick / stickLength) * stickVelocity;
 }
 
 fix32 IN_FlickStick() {//flickstick from yquake2 (thanks Protocultor)
@@ -1086,10 +1112,10 @@ gyro mouse flickstick jsm joyshockmapper dualsense steamcontroller dualshock ds4
 [Presets]
 shortdesc =
 control = config
-item        = Steam Controller:#19:08#33:00FA
-item        = Deadzone and VIRTUAL_STICK_CALIBRATION Finder:0100000000#19:000000000000000000#3D:00190000
-item        = Acceleration Example:#01:00000000#1A:00008000000200000014000003200000
-item        = Threshold Testing Example (Motion only above 500 degrees per second):#01:00000000#1A:000000000001000001F4000001F50000
+item        = Steam Controller:#03:00FA#07:02#32:00000000
+item        = Deadzone and VIRTUAL_STICK_CALIBRATION Finder:01#07:00#12:000000000000000000004000
+item        = Acceleration Example:#0A:00050000025800000000800000020000
+item        = Threshold Testing Example (Motion only above 500 degrees per second):#0A:01F4000001F402900000000000010000
 item        = User Preset 1:
 item        = User Preset 2:
 [Layout]
@@ -1111,7 +1137,7 @@ bitsize = 1
 bitoffset = 3
 control = checkbox
 default = 0
-item = Flickstick
+item = Flickstick (mouse-only until future update)
 groupcol = true
 [Layout windingStick checkbox]
 shortdesc = 
@@ -1190,7 +1216,7 @@ groupcol = true
 
 [Controller Config]
 [Virtual]
-shortdesc = <p style="text-align:center;"><h4>Virtual Controller Out</h4></p>
+shortdesc = <p style="text-align:center;"><h4>Virtual Controller</h4></p>
 control = info
 group = true
 [UNDEADZONE_INNER]
@@ -1269,12 +1295,26 @@ maximum = 1000
 step = 000010
 group = true
 [Real]
-shortdesc = <p style="text-align:center;"><h4>Real Controller Input</h4></p>
+shortdesc = <p style="text-align:center;"><h4>Real Controller</h4></p>
 control = info
 groupcol = true
 [DEADZONE_INNER]
 shortdesc = <code>DEADZONE_INNER</code>
 byteoffset = 50
+bitsize = 32
+control = spinboxf
+default = 015
+decimals = 2
+minimum = 000
+maximum = 100
+group = true
+[SPACE DEADZONE_OUTER]
+control = space
+default = 5
+group = true
+[DEADZONE_OUTER]
+shortdesc = <code>DEADZONE_OUTER</code>
+byteoffset = 62
 bitsize = 32
 control = spinboxf
 default = 015
@@ -1297,19 +1337,10 @@ item = Joystick overrides UNDEADZONE_OUTER
 group = true
 [SPACE bottom config]
 control = space
-default = 125
+default = 84
 group = true
 
 [Misc]
-[Calibrate gyro on startup]
-shortdesc = 
-byteoffset = 7
-bitsize = 1
-bitoffset = 1
-control = checkbox
-default = 1
-item = Calibrate gyro on startup
-group = true
 [Calibration samples]
 shortdesc = Calibration samples
 byteoffset = 3
@@ -1345,17 +1376,18 @@ minimum = 000000
 maximum = 100000
 step = 100
 group = true
-[GYRO_SPACE]
-shortdesc = <code>GYRO_SPACE</code>
-bitsize = 8
-byteoffset = 1
-control = combobox
-default = 0
-item = LOCAL
-item = PLAYER_TURN
-item = PLAYER_LEAN
-item = WORLD_TURN
-item = WORLD_LEAN
+[SPACE Calibrate gyro on startup]
+control = space
+default = 25
+group = true
+[Calibrate gyro on startup]
+shortdesc = 
+byteoffset = 7
+bitsize = 1
+bitoffset = 1
+control = checkbox
+default = 1
+item = Calibrate gyro on startup
 group = true
 [IN_GAME_SENS]
 shortdesc = <code>IN_GAME_SENS</code>
@@ -1379,9 +1411,17 @@ minimum = 000000
 maximum = 100000
 step = 000010
 group = true
-[SPACE bottom misc]
-control = space
-default = 48
+[GYRO_SPACE]
+shortdesc = <code>GYRO_SPACE</code>
+bitsize = 8
+byteoffset = 1
+control = combobox
+default = 0
+item = LOCAL
+item = PLAYER_TURN
+item = PLAYER_LEAN
+item = WORLD_TURN
+item = WORLD_LEAN
 group = true
 
 [Output Protocol]
