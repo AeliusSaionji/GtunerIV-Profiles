@@ -19,16 +19,19 @@ NOTES
 - Beware math functions which may exceed fix32 range (check calls to pythag)
 
 TODO - first release
+current maxStickGameSpeed results in too low value for some reason, recheck
+joystick clearly needs mouse's rollover code, or something
+notes and config guide up there should be given a once over
 be sure there are safeties when no config val exists in pmem
 in heavybullets, jsm roughly 2x as sensitive given same settings?
 add a config.h to include
 --gyro off needs to be configurable
 make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
-document the blink timing thing
-do the various sens functions still take accel into account?
-does override outer work for virtual_scale? It should.
 xim specific axis fix?
-remove rotational
+does override outer also override virtual scale outer? it should
+finish stickIsUndead bool (affects both processStick any processGyroStick)
+finish processStick
+document gyro space
 
 TODO - eventually
 GYRO_SENS X Y
@@ -58,6 +61,7 @@ optimize variables and memory usage
 --offsetSamples and the local count are SO SIMILAR
 --apply simpler if logic where possible (reference blinkerSync(), liveAdjust())
 --possibly convert thresholds to uint
+--learn structs, use them
 mouse_ring and mouse_area and scroll_wheel
 figure out why higher than 2ms kills cpu
 --implement function profiling
@@ -73,6 +77,7 @@ jsm is missing generic UNDEADZONE_INNER, outer, virtualscale, power
 --ez pull request if worth doing
 jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
 --implement azeron like test to find real size.
+with the way I share one var for swapping left/right stick, deadzone might not apply to both
 
 */
 
@@ -81,6 +86,12 @@ jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
 #include <display.gph>
 #define SMOOTH_BUFFER_SIZE 32 //Steam Input's maximum is 40
 #define FLICKSTICK_THRESHOLD 0.995
+#define STICK_X stick[0]
+#define STICK_Y stick[1]
+#define STICK_LENGTH stick[2]
+#define GYRO_X tmp1
+#define GYRO_Y tmp2
+#define GYRO_Z tmp3
 
 #define OFF_GO 0  // 1byte // GYRO_OUTPUT
 #define OFF_GS 1  // 1byte // GYRO_SPACE
@@ -91,7 +102,7 @@ jsm default livezone size is assumed to be 1 but can be 1.1 in practice.
 #define OFF_CB 7  // 1bit  // calibrating
 #define OFF_SD 7  // 1bit  // stickDisable
 #define OFF_FS 7  // 1bit  // flickStick
-#define OFF_WS 7  // 1bit  // winding
+#define OFF_SU 7  // 1bit  // stickIsUndead
 #define OFF_NT 10 // 4byte // MIN_GYRO_THRESHOLD
 #define OFF_XT 14 // 4byte // MAX_GYRO_THRESHOLD
 #define OFF_NS 18 // 4byte // MIN_GYRO_SENS
@@ -114,12 +125,7 @@ fix32 accelGrav[3];// Using order Z X Y again
 fix32 calibratedGyro[3];
 fix32 accumulatedOffset[3];
 fix32 camera[2];
-fix32 stick1X;
-fix32 stick1Y;
-fix32 stick2X;
-fix32 stick2Y;
-fix32 stick1Length;
-fix32 stick2Length;
+fix32 stick[3];
 fix32 gyroStickX;
 fix32 gyroStickY;
 bool configMode = FALSE;
@@ -127,14 +133,13 @@ const bool DEBUG = TRUE;
 bool gyroBlocked;
 
 //Settings with initial defaults
-const uint8 gyro_output = 1; //0:mouse, 1:right stick, 2:left stick
-const uint8 outProtocol = 0;
-const bool flickStick = FALSE;
-const bool calibrating = TRUE;
-const bool outerStickOverride = TRUE;
-const bool stickDisable = FALSE;
-const bool flickstick = FALSE;
-const bool winding = FALSE;
+uint8 gyro_output = 1; //0:mouse, 1:right stick, 2:left stick
+uint8 outProtocol = 0;
+bool flickStick = FALSE;
+bool calibrating = TRUE;
+bool outerStickOverride = TRUE;
+bool stickDisable = FALSE;
+bool stickIsUndead = FALSE;
 uint8 gyro_space = 0;
 uint16 maxStickGameSpeed = 360;
 fix32 min_gyro_sens = 1.0;
@@ -166,7 +171,7 @@ init {
   calibrating        = (pmem_read(OFF_CB)>>1) & 0b1;
   stickDisable       = (pmem_read(OFF_SD)>>2) & 0b1;
   flickStick         = (pmem_read(OFF_FS)>>3) & 0b1;
-  winding            = (pmem_read(OFF_WS)>>4) & 0b1;
+  stickIsUndead      = (pmem_read(OFF_SU)>>4) & 0b1;
 
   //fix32s & int16s
   pmem_read(OFF_UI, &undeadzone_inner);
@@ -208,24 +213,25 @@ init {
 
   if (DEBUG) {
     gyro_output = 0;
+    stickDisable = 0;
     outerStickOverride = FALSE;
     calibrating = TRUE;
     flickStick = FALSE;
-    undeadzone_inner = 0.0;
+    undeadzone_inner = 0.19;
     undeadzone_outer = 0.0;
     deadzone_inner = 0.15;
-    deadzone_outer = 0.25;
+    deadzone_outer = 0.1;
     virtual_scale = 1.0;
     unpower = 0.0;
-    maxStickGameSpeed = 90;
+    maxStickGameSpeed = 302;
     min_gyro_sens = 1.0;
     max_gyro_sens = 1.0;
     gyro_tight_threshold = 0.0;
     gyro_smooth_threshold = 0.0;
     gyro_space = 0;
-    winding = FALSE;
     configMode = FALSE;
-    in_game_sens = 0.3;
+    stickIsUndead = TRUE;
+    in_game_sens = 1.0;
     realWorldCalibration = 2.911;
     mouseCalibration = realWorldCalibration / in_game_sens;
   }
@@ -269,6 +275,17 @@ main {
 
   if (configMode) liveAdjust();
 
+  if (gyro_output == 1) {//Right stick
+    STICK_X = get_actual(STICK_1_X) / 100.0;//JSM logic operates on 0-1
+    STICK_Y = get_actual(STICK_1_Y) / 100.0;
+  }
+  if (gyro_output == 2) {//Left stick
+    STICK_X = get_actual(STICK_2_X) / 100.0;//JSM logic operates on 0-1
+    STICK_Y = get_actual(STICK_2_Y) / 100.0;
+  }
+  STICK_LENGTH = pythag(STICK_X, STICK_Y);
+
+
   static uint8 delay;
   delay += (uint8)elapsed_time();
   if (delay >= 2) {//loop 500Hz fastest, or Titan will be sad
@@ -291,13 +308,7 @@ main {
     gyroVelocity[0] = get_actual(GYRO_1_Z);//gyro: Y yaw, Z roll
     gyroVelocity[1] = get_actual(GYRO_1_X);
     gyroVelocity[2] = get_actual(GYRO_1_Y);
-    stick1X = get_actual(STICK_1_X) / 100.0;//JSM logic operates on 0-1
-    stick1Y = get_actual(STICK_1_Y) / 100.0;
-    stick2X = get_actual(STICK_2_X) / 100.0;
-    stick2Y = get_actual(STICK_2_Y) / 100.0;
-    stick1Length = pythag(stick1X, stick1Y);
-    stick2Length = pythag(stick2X, stick2Y);
-    
+
     //Process input regardless of duplicate readings.
     //Filtering for unique samples appears to undo what is probably Titan's
     //internally managed deltaTime.
@@ -305,12 +316,8 @@ main {
     if (gyro_output == 0) {//mouse
       processMouse(camera[0], camera[1]);
     }
-    if (gyro_output == 1) {//Right stick
-      if (winding) flickRotate();
-      processGyroStick(stick1X, stick1Y); //can return bool
-    }
-    if (gyro_output == 2) {//Left stick
-      processGyroStick(stick2X, stick2Y); //can return bool
+    if (gyro_output >= 1) {
+      processGyroStick(STICK_X, STICK_Y); //can return bool
     }
     delay = 0;
   }
@@ -322,8 +329,7 @@ main {
     set_val(STICK_1_X, 0.0);//disable right joystick
     set_val(STICK_1_Y, 0.0);
   } else {//Apply controller options, even in mouse mode.
-    set_val(STICK_1_X, processStick(stick1X, stick1Length) * 100.0);
-    set_val(STICK_1_Y, processStick(stick1Y, stick1Length) * 100.0);
+    processStick(&stick);
   }
 
   if  (gyro_output) {//nonzero means joystick
@@ -344,16 +350,16 @@ main {
     //Gyro is still subject to deadzone and thus remains linear,
     //but stick now has access to game's accel for snappy stick turning
     #define OUTER_OVERRIDE_VAL 95.0
-    if (outerStickOverride == TRUE && winding == FALSE) {
-      if (abs(stick1X) >= OUTER_OVERRIDE_VAL) {
-        int8 signX = stick1X > 0.0 ? 1 : -1;
+    if (outerStickOverride) {
+      if (abs(STICK_X) >= OUTER_OVERRIDE_VAL) {
+        int8 signX = STICK_X > 0.0 ? 1 : -1;
         set_val(STICK_1_X, (gyroStickX + (undeadzone_outer * (fix32)signX)) * 100.0);
       }
-      if (abs(stick1Y) >= OUTER_OVERRIDE_VAL) {
-        int8 signY = stick1Y > 0.0 ? 1 : -1;
+      if (abs(STICK_Y) >= OUTER_OVERRIDE_VAL) {
+        int8 signY = STICK_Y > 0.0 ? 1 : -1;
         set_val(STICK_1_Y, (gyroStickY + (undeadzone_outer * (fix32)signY)) * 100.0);
       }
-    } else if (outerStickOverride == TRUE && winding == TRUE) flickRotate2();
+    }
   }
 }
 
@@ -625,7 +631,7 @@ void processMouse(fix32 x, fix32 y) {
   static fix32 diffX, diffY;
   fix32 mouseXint, mouseYint;
 
-  if (flickStick) x += IN_FlickStick() * mouseCalibration;
+  if (flickStick) x += IN_FlickStick(&stick) * mouseCalibration;
 
   mouseXint = round(x + diffX);//add value lost from previous rounding
   mouseYint = round(y + diffY);//then round to nearest int
@@ -635,36 +641,6 @@ void processMouse(fix32 x, fix32 y) {
   diffY -= 0.01 * diffY;
   mouse_set(MOUSE_X, (int32)mouseXint);
   mouse_set(MOUSE_Y, (int32)mouseYint);
-}
-
-void flickRotate() {
-  //flick-rotate logic
-  fix32 x = get_actual(STICK_1_X);
-  fix32 y = get_actual(STICK_1_Y);
-  fix32 length = pythag(x, y);
-  fix32 lengthRad = atan2(x, -y) / PI * 100.0;
-  //static fix32 unwrap;
-  //unwrap = lengthRad - round((lengthRad - unwrap) / 200.0)*200.0;//LUNS
-  //if (abs(unwrap) > 150.0) unwrap = lengthRad;
-  //fix32 clip = unwrap > 100.0 ? 100.0 : unwrap<-100.0 ?-100.0 : unwrap;
-  if (length >= 10.0) {
-    //lengthRad = abs(lengthRad) < 50.0 ? clamp(lengthRad * 3.0, -100.0, 100.0) : lengthRad;
-    set_val(STICK_1_X, 0.0);
-    set_val(STICK_1_Y, 0.0);
-    set_val(STICK_1_X, lengthRad);
-  }
-}
-
-void flickRotate2() {
-  //currently just breaks outder deadzone
-  fix32 x = get_val(STICK_1_X);
-  fix32 undeadzone_outerNew = undeadzone_outer * 100.0;
-  if (x >= 98.0 - undeadzone_outerNew) {
-    set_val(STICK_1_X, x + undeadzone_outerNew);
-  }
-  if (x <= -98.0 + undeadzone_outerNew) {
-    set_val(STICK_1_X, x - undeadzone_outerNew);
-  }
 }
 
 void GYRO_OFF(bool val) {
@@ -981,21 +957,32 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   //GPC has all axis represented in -100 to 100
   //This is not the case with JSM
   fix32 stickLength = pythag(stickX, stickY);
+  fix32 stickVelocity;
   fix32 livezoneSize = 1.0 - undeadzone_outer - undeadzone_inner;
-  fix32 realSize = 1.0 - deadzone_outer - deadzone_inner;
   //in order to correctly combine gyro and stick, we need to calculate what the stick
   //aiming is supposed to be doing, add gyro result to it, and convert back to stick
   if (unpower == 0.0) {
     unpower = 1.0;
   }
 
-  /*fix32 stickVelocity = pow(
-clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
-  ) * (fix32)maxStickGameSpeed * virtual_scale;*/
-
-  fix32 stickVelocity = pow(
-  clamp((stickLength - deadzone_inner) / realSize, 0.0, 1.0), unpower
-  ) * (fix32)maxStickGameSpeed * virtual_scale;
+  //Currently, stickIsUndead alters velocity associated with a given stick tilt.
+  //JSM equates undeadzone with stick deadzone, retaining expected tilt velocity.
+  //TODO maybe: Compromise between the two approaches.
+  //game inner deadzone = .25, range begins at .25 (hence jsm deadzone)
+  //undeadzone could employ a discontinuity to match up for _most_ of the range.
+  //Add in a range from deadzone to undeadzone + fudgezone,
+  //such that the stick tilt : game velocity is identical to native game behavior
+  //but only after the fudgezone
+  if (stickIsUndead) {
+    fix32 realzoneSize = 1.0 - deadzone_outer - deadzone_inner;
+    stickVelocity = pow(
+    clamp((stickLength - deadzone_inner) / realzoneSize, 0.0, 1.0), unpower
+    ) * (fix32)maxStickGameSpeed * virtual_scale;
+  } else {
+    stickVelocity = pow(
+    clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
+    ) * (fix32)maxStickGameSpeed * virtual_scale;
+  }
 
   fix32 expectedX = 0.0;
   fix32 expectedY = 0.0;
@@ -1030,34 +1017,50 @@ clamp((stickLength - undeadzone_inner) / livezoneSize, 0.0, 1.0), unpower
     gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
   }
 
+  //does this make sense in the new context of using regular deadzone?
   return stickLength > undeadzone_inner;
 }
 
-fix32 processStick(fix32 stick, fix32 stickLength) {
-  if (unpower == 0.0) {
-    unpower = 1.0;
-  }
-  fix32 realSize = 1.0 - deadzone_outer - deadzone_inner;
-  fix32 stickVelocity = pow(
-  clamp((stickLength - deadzone_inner) / realSize, 0.0, 1.0), unpower
-  ) * virtual_scale;
+void processStick(fix32 *stick) {
+  //This function only runs when gyro is not mapped to a stick
+  fix32 livezoneSize = 1.0 - undeadzone_outer - undeadzone_inner;
+  fix32 realzoneSize = 1.0 - deadzone_outer - deadzone_inner;
 
-  return (stick / stickLength) * stickVelocity;
+  //honor deadzones
+  fix32 stickLengthScaled = clamp(
+    (STICK_LENGTH - deadzone_inner) / realzoneSize,
+  0.0, 1.0)
+  * virtual_scale;
+
+  stickLengthScaled = stickLengthScaled >= 1.0 ? 1.0 : stickLengthScaled;
+
+  fix32 componentX, componentY = 0.0;
+  //stick, now rescaled with deadzone and virtual_scale
+  if (stickLengthScaled > 0.0) {
+    componentX = (STICK_X / STICK_LENGTH) * stickLengthScaled;
+    componentY = (STICK_Y / STICK_LENGTH) * stickLengthScaled;
+  }
+
+  //honor undeadzone
+  if (stickIsUndead) {
+    //TODO
+    //something something divide by livezoneSize
+  }
+
+  set_val(STICK_1_X, componentX * 100.0);
+  set_val(STICK_1_Y, componentY * 100.0);
 }
 
-fix32 IN_FlickStick() {//flickstick from yquake2 (thanks Protocultor)
+fix32 IN_FlickStick(fix32 *stick) {//flickstick from yquake2 (thanks Protocultor)
   #define FLICK_TIME 1
   static uint8 flick_progress = FLICK_TIME;
   static bool is_flicking;
   static fix32 last_stick_angle;
   fix32 target_angle;
   fix32 angle_change;
-  fix32 stickX = get_actual(STICK_1_X)/100.0;
-  fix32 stickY = get_actual(STICK_1_Y)/100.0;
-  fix32 mag = pythag(stickX, stickY);
 
-  if (mag > FLICKSTICK_THRESHOLD) {// flick!
-    fix32 stick_angle = atan2(stickX, -stickY);
+  if (STICK_LENGTH > FLICKSTICK_THRESHOLD) {// flick!
+    fix32 stick_angle = atan2(STICK_X, -STICK_Y);
 
     if (!is_flicking) {
       // Flicking begins now, with a new target
@@ -1138,15 +1141,6 @@ control = checkbox
 default = 0
 item = Flickstick (mouse-only until future update)
 groupcol = true
-[Layout windingStick checkbox]
-shortdesc = 
-byteoffset = 7
-bitsize = 1
-bitoffset = 4
-control = checkbox
-default = 0
-item = Rotational stick aim (incomplete)
-group = true
 [Layout stickDisable checkbox]
 shortdesc = 
 byteoffset = 7
@@ -1214,10 +1208,11 @@ control = info
 groupcol = true
 
 [Controller Config]
-[Virtual]
-shortdesc = <p style="text-align:center;"><h4>Virtual Controller</h4></p>
+[Gyro Stick]
+shortdesc = <p style="text-align:center;"><h4>Gyro Stick</h4></p>
 control = info
 group = true
+
 [UNDEADZONE_INNER]
 shortdesc = <code>UNDEADZONE_INNER</code>
 byteoffset = 26
@@ -1245,22 +1240,6 @@ decimals = 2
 step = 005
 minimum = 000
 maximum = 100
-group = true
-[SPACE VIRTUAL_SCALE]
-control = space
-default = 5
-group = true
-[VIRTUAL_SCALE]
-shortdesc = <code>VIRTUAL_SCALE</code>
-byteoffset = 34
-bitsize = 32
-bitoffset = 0
-control = spinboxf
-decimals = 2
-default = 0100
-minimum = 0001
-maximum = 1000
-step = 001
 group = true
 [SPACE UNPOWER]
 control = space
@@ -1293,10 +1272,48 @@ minimum = 0001
 maximum = 1000
 step = 000010
 group = true
-[Real]
-shortdesc = <p style="text-align:center;"><h4>Real Controller</h4></p>
+[Joystick]
+shortdesc = <p style="text-align:center;"><h4>Joystick</h4></p>
 control = info
 groupcol = true
+[SPACE VIRTUAL_SCALE]
+control = space
+default = 2
+group = true
+[VIRTUAL_SCALE]
+shortdesc = <code>VIRTUAL_SCALE</code>
+byteoffset = 34
+bitsize = 32
+bitoffset = 0
+control = spinboxf
+decimals = 2
+default = 0100
+minimum = 0001
+maximum = 1000
+step = 001
+group = true
+[SPACE UNDEADZONE_OUTER override]
+control = space
+default = 13
+group = true
+[UNDEADZONE_OUTER override]
+shortdesc =
+byteoffset = 7
+bitsize = 1
+bitoffset = 0
+control = checkbox
+default = 0
+item = Joystick overrides UNDEADZONE_OUTER
+group = true
+[stickIsUndead]
+shortdesc =
+byteoffset = 7
+bitsize = 1
+bitoffset = 4
+control = checkbox
+default = 0
+item = stickIsUndead (enables deadzones)
+group = true
 [DEADZONE_INNER]
 shortdesc = <code>DEADZONE_INNER</code>
 byteoffset = 50
@@ -1316,27 +1333,10 @@ shortdesc = <code>DEADZONE_OUTER</code>
 byteoffset = 62
 bitsize = 32
 control = spinboxf
-default = 015
+default = 010
 decimals = 2
 minimum = 000
 maximum = 100
-group = true
-[SPACE UNDEADZONE_OUTER override]
-control = space
-default = 22
-group = true
-[UNDEADZONE_OUTER override]
-shortdesc =
-byteoffset = 7
-bitsize = 1
-bitoffset = 0
-control = checkbox
-default = 0
-item = Joystick overrides UNDEADZONE_OUTER
-group = true
-[SPACE bottom config]
-control = space
-default = 84
 group = true
 
 [Misc]
@@ -1508,7 +1508,9 @@ If uJSM knows where the deadzone is, it can use that as the starting point for g
 
 <code>UNDEADZONE_OUTER</code> can be used to avoid non-linear jumps in sensitivity programmed into the game, which feel unnatural with gyro aim.
 
-Note that both <code>UNDEADZONE_INNER</code> and <code>UNDEADZONE_OUTER</code> options are asking for the size of the deadzone, not where the deadzone starts. If there's a jump in acceleration at 92% stick tilt, you want an 8% outer deadzone.
+By default, this only applies to the gyro, while the joystick passes through to the game unaltered. Change that with the option <code>stickIsUndead</code>, and you can configure your own stick deadzone even when the game doesn't have an option for it.
+
+Note that <code>UNDEADZONE_INNER</code>, <code>DEADZONE_INNER</code>, <code>UNDEADZONE_OUTER</code>, and <code>DEADZONE_OUTER</code> options are asking for the size of the deadzone, not where the deadzone starts. If there's a jump in acceleration at 92% stick tilt, you want an 8% outer undeadzone.
 
 <code>Deadzone Finder</code> preset helps precisely find inner deadzone. When active, Titan will tilt the right joystick at the configured inner deadzone. Find the highest value of <code>UNDEADZONE_INNER</code> where the camera DOESN'T move. Start at 25% and work your way up or down from there.
 
