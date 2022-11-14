@@ -224,13 +224,13 @@ init {
     outerStickOverride = FALSE;
     calibrating = TRUE;
     flickStick = FALSE;
-    undeadzone_inner = 0.20;
+    undeadzone_inner = 0.40;
     undeadzone_outer = 0.0;
-    deadzone_inner = 0.03;
+    deadzone_inner = 0.15;
     deadzone_outer = 0.1;
     virtual_scale = 1.0;
     unpower = 0.0;
-    maxStickGameSpeed = 302;
+    maxStickGameSpeed = 360;
     min_gyro_sens = 1.0;
     max_gyro_sens = 1.0;
     gyro_tight_threshold = 0.0;
@@ -1039,7 +1039,9 @@ bool processGyroStick(fix32 stickX, fix32 stickY) {
   }
 
   // remap to between inner and outer deadzones
-  if (gyroInStickStrength > 0.010) {
+  if (gyroInStickStrength > 0.003) {//JSM hardcodes 0.010, too high in uJSM
+                                    //TODO: what makes JSM behave different?
+                                    //Probably lack of raw gyro data
     gyroInStickStrength = undeadzone_inner + gyroInStickStrength * livezoneSize;
     gyroStickX = (expectedX / targetGyroVelocity) * gyroInStickStrength;
     gyroStickY = (expectedY / targetGyroVelocity) * gyroInStickStrength;
