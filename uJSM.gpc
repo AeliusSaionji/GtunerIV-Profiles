@@ -21,6 +21,8 @@ NOTES
 TODO - first release
 current maxStickGameSpeed results in too low value for some reason, recheck
 joystick clearly needs mouse's rollover code, or something
+--JSM seems to have way less of this cutoff than uJSM
+--maybe because the way titan presents gyro range
 notes and config guide up there should be given a once over
 be sure there are safeties when no config val exists in pmem
 in heavybullets, jsm roughly 2x as sensitive given same settings?
@@ -36,6 +38,11 @@ document gyro space
 TODO - eventually
 GYRO_SENS X Y
 flickstick joystick
+"tightening" is really cutoff recovery
+the gyro_in_stick_strength creates an unsatisfying deadzone
+--trade for pulsing joystick at low speeds?
+refuse debug if running from titan?
+--iirc pmem is null when running from IDE
 validate accel sign against steam controller dsu
 --they're different. Check worldspace code against SC signage
 read out 10s digit to segdisp in liveAdjust
@@ -86,7 +93,7 @@ with the way I share one var for swapping left/right stick, deadzone might not a
 #include <display.gph>
 #define SMOOTH_BUFFER_SIZE 32 //Steam Input's maximum is 40
 #define FLICKSTICK_THRESHOLD 0.995
-#define STICK_X stick[0]
+#define STICK_X stick[0] //Dirty hack for readability
 #define STICK_Y stick[1]
 #define STICK_LENGTH stick[2]
 #define GYRO_X tmp1
@@ -120,7 +127,7 @@ with the way I share one var for swapping left/right stick, deadzone might not a
 
 //Misc Globals
 uint16 offsetSamples;
-fix32 gyroVelocity[3];//0 is Yaw (Z), 1 is Pitch (X), 2 is roll (Y)
+fix32 gyroVelocity[3];//0 is Yaw (Z), 1 is Pitch (X), 2 is Roll (Y)
 fix32 accelGrav[3];// Using order Z X Y again
 fix32 calibratedGyro[3];
 fix32 accumulatedOffset[3];
@@ -212,14 +219,14 @@ init {
   }
 
   if (DEBUG) {
-    gyro_output = 0;
+    gyro_output = 1;
     stickDisable = 0;
     outerStickOverride = FALSE;
     calibrating = TRUE;
     flickStick = FALSE;
-    undeadzone_inner = 0.19;
+    undeadzone_inner = 0.20;
     undeadzone_outer = 0.0;
-    deadzone_inner = 0.15;
+    deadzone_inner = 0.03;
     deadzone_outer = 0.1;
     virtual_scale = 1.0;
     unpower = 0.0;
@@ -230,7 +237,7 @@ init {
     gyro_smooth_threshold = 0.0;
     gyro_space = 0;
     configMode = FALSE;
-    stickIsUndead = TRUE;
+    stickIsUndead = FALSE;
     in_game_sens = 1.0;
     realWorldCalibration = 2.911;
     mouseCalibration = realWorldCalibration / in_game_sens;
@@ -325,7 +332,7 @@ main {
   /* set_val must be outside polling loop! Lest values bounce to 0 every cycle */
 
   //Controller is still passed as a joystick in HID output, it may be active
-  if (!gyro_output && stickDisable) {//zero means mouse
+  if (!gyro_output && stickDisable) {//gyro_output is not zero (mouse)
     set_val(STICK_1_X, 0.0);//disable right joystick
     set_val(STICK_1_Y, 0.0);
   } else {//Apply controller options, even in mouse mode.
@@ -690,6 +697,7 @@ void processInput() {
   if (gyro_tight_threshold > 0.0) {
     getTightenedInput(&calibratedGyro[0], &calibratedGyro[1], gyro_tight_threshold);
   }
+  //cutoffRecovery(&calibratedGyro[0], &calibratedGyro[1], 0.0, 0.01);
 
   //accelerating
   if (min_gyro_sens < max_gyro_sens) {//only when valid
@@ -925,6 +933,26 @@ void getTightenedInput(fix32 *input0, fix32 *input1, fix32 threshold) {
     fix32 inputScale = inputMagnitude / threshold;
     *input0 *= inputScale;
     *input1 *= inputScale;
+  }
+}
+
+void cutoffRecovery(fix32 *gyroX, fix32 *gyroY, fix32 speed, fix32 recovery) {
+  // now, honour gyro_cutoff_speed
+  fix32 gyroLength = pythag(*gyroX, *gyroY); //TODO replace with pointer, this is probably repeated in other funcs
+  //auto speed = jc->getSetting(SettingID::GYRO_CUTOFF_SPEED);
+  //auto recovery = jc->getSetting(SettingID::GYRO_CUTOFF_RECOVERY);
+  if (recovery > speed) {
+    // we can use gyro_cutoff_speed
+    fix32 gyroIgnoreFactor = (*gyroLength - speed) / (recovery - speed);
+    if (gyroIgnoreFactor < 1.0) {
+      if (gyroIgnoreFactor <= 0.0) {
+        *gyroX = *gyroY;//= gyroLength = 0.0;
+      } else {
+        *gyroX *= gyroIgnoreFactor;
+        *gyroY *= gyroIgnoreFactor;
+        gyroLength *= gyroIgnoreFactor;
+      }
+    }
   }
 }
 
