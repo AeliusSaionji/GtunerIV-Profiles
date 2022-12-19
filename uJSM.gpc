@@ -1,4 +1,4 @@
-#pragma METAINFO("uJSM.gpc", 1, 0, "Aelius")
+#pragma METAINFO("uJSM.gpc", 0, 1, "Aelius")
 
 /*
 
@@ -1520,6 +1520,21 @@ The new aim method that I believe will one day replace traditional stick aim!
 From the gyro wiki: <code>"Flick stick maps the angle of one of the thumbsticks (in the following examples, the right stick) to the same angle turn in-game."</code> In other words, it gives you twinstick shooter controls in first person shooter games. It's best to see it in action: watch this introductory video to get the idea <a href="https://www.youtube.com/watch?v=GzbZq4OjEwE">https://www.youtube.com/watch?v=GzbZq4OjEwE</a>
 
 Please also read this to configure: <a href="https://github.com/Electronicks/JoyShockMapper#5-real-world-calibration">https://github.com/Electronicks/JoyShockMapper#5-real-world-calibration</a>
+MULTILINE
+control = info
+
+[Info: On the fly config]
+shortdesc = <<<MULTILINE
+Hold the controller in your right hand oriented left side up, with the thumbsticks facing right.
+Hold R1 with pinky, then press L1 with index finger.
+To prevent accidental activation, the controller must be held near perfectly sideways; keep R1 held and keep tapping L1 until the controller vibrates.
+Once the controller vibrates, you're in. Repeat this to save and exit.
+
+See Gtuner console for information.
+Southmost face button cycles between config options.
+DPad left right decrements and increments.
+DPad down up decrements and increments with larger steps.
+Eastmost face button resets unsaved changes to the current config option.
 MULTILINE
 control = info
 
