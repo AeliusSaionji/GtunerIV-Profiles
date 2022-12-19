@@ -34,6 +34,11 @@ does override outer also override virtual scale outer? it should
 finish stickIsUndead bool (affects both processStick any processGyroStick)
 finish processStick
 document gyro space
+assign keyboard keys for HID output, because titan joystick out to xim is cursed
+document mappings for xim
+  Right Stick X = Joystick Left Z
+  Right Stick Y = Joystick Right Z
+    Y is reversed!? and xim won't invert it? Well, most games offer an inverted aim option...
 
 TODO - eventually
 GYRO_SENS X Y
@@ -136,7 +141,7 @@ fix32 stick[3];
 fix32 gyroStickX;
 fix32 gyroStickY;
 bool configMode = FALSE;
-const bool DEBUG = TRUE;
+const bool DEBUG = FALSE;
 bool gyroBlocked;
 
 //Settings with initial defaults
@@ -148,7 +153,7 @@ bool outerStickOverride = TRUE;
 bool stickDisable = FALSE;
 bool stickIsUndead = FALSE;
 uint8 gyro_space = 0;
-uint16 maxStickGameSpeed = 360;
+uint16 maxStickGameSpeed = 160; //JSM default 360
 fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
 fix32 unpower = 0.0;
@@ -219,11 +224,11 @@ init {
   }
 
   if (DEBUG) {
-    gyro_output = 1;
+    gyro_output = 0;
     stickDisable = 0;
     outerStickOverride = FALSE;
     calibrating = TRUE;
-    flickStick = FALSE;
+    flickStick = TRUE;
     undeadzone_inner = 0.40;
     undeadzone_outer = 0.0;
     deadzone_inner = 0.15;
@@ -245,6 +250,23 @@ init {
 }
 
 main {
+  //End user take note!
+  //Create your controller to mouse & keyboard binds here
+  if  (gyro_output == 0) {
+    if (is_active(BUTTON_4)) {//R1/RB suggested as fire for gyro
+      mouse_set(MBUTTON_1, TRUE);//Triggers tend to make you wobble controller
+    } else if (is_release(BUTTON_4)) {
+      mouse_set(MBUTTON_1, FALSE);
+    }
+    if (is_active(BUTTON_5)) {
+      key_set(KEY_SPACEBAR, TRUE);
+    } else if (is_release(BUTTON_5)) {
+      key_set(KEY_SPACEBAR, FALSE);
+    }
+    if (is_active(BUTTON_15)) GYRO_OFF(TRUE);
+    else GYRO_OFF(FALSE);
+  }
+  
   if (DEBUG) {
     //temp binds for testing
     if (is_active(BUTTON_4)) {
@@ -282,7 +304,7 @@ main {
 
   if (configMode) liveAdjust();
 
-  if (gyro_output == 1) {//Right stick
+  if (gyro_output == 1 || gyro_output == 0) {//Right stick
     STICK_X = get_actual(STICK_1_X) / 100.0;//JSM logic operates on 0-1
     STICK_Y = get_actual(STICK_1_Y) / 100.0;
   }
@@ -1144,12 +1166,11 @@ gyro mouse flickstick jsm joyshockmapper dualsense steamcontroller dualshock ds4
 shortdesc =
 control = config
 item        = Steam Controller:#03:00FA#07:02#32:00000000
-item        = Deadzone Finder:
-item        = VIRTUAL_STICK_CALIBRATION Finder:
+item        = Deadzone Finder:#07:00#12:000000000000000000004000
+item        = VIRTUAL_STICK_CALIBRATION Finder:#07:00#12:000000000000000000010000
 item        = Acceleration Example:#0A:00050000025800000000800000020000
 item        = Threshold Testing Example (Motion only above 500 degrees per second):#0A:01F4000001F402900000000000010000
-item        = User Preset 1:
-item        = User Preset 2:
+item        = User Preset 1 (edit and add more presets in source code, line 1156):
 [Layout]
 [GYRO_OUTPUT]
 shortdesc = <code>GYRO_OUTPUT</code>
