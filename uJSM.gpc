@@ -26,7 +26,7 @@ joystick clearly needs mouse's rollover code, or something
 notes and config guide up there should be given a once over
 be sure there are safeties when no config val exists in pmem
 in heavybullets, jsm roughly 2x as sensitive given same settings?
-add a config.h to include
+add a config.h to include?
 --gyro off needs to be configurable
 make GYRO_OFF work as a one liner instead of this if then true else false nonsense.
 xim specific axis fix?
@@ -1318,7 +1318,7 @@ byteoffset = 5
 bitsize = 16
 bitoffset = 0
 control = spinbox
-default = 360
+default = 160
 minimum = 0001
 maximum = 1000
 step = 000010
@@ -1518,6 +1518,8 @@ control = info
 shortdesc = <<<MULTILINE
 The new aim method that I believe will one day replace traditional stick aim!
 From the gyro wiki: <code>"Flick stick maps the angle of one of the thumbsticks (in the following examples, the right stick) to the same angle turn in-game."</code> In other words, it gives you twinstick shooter controls in first person shooter games. It's best to see it in action: watch this introductory video to get the idea <a href="https://www.youtube.com/watch?v=GzbZq4OjEwE">https://www.youtube.com/watch?v=GzbZq4OjEwE</a>
+
+Please also read this to configure: <a href="https://github.com/Electronicks/JoyShockMapper#5-real-world-calibration">https://github.com/Electronicks/JoyShockMapper#5-real-world-calibration</a>
 MULTILINE
 control = info
 
@@ -1590,6 +1592,25 @@ Configure thresholds in values of degrees per second: how fast you are turning t
 Try values near 10 when trying to set a threshold that activates when moving as slow as possible. The highest sensible values is somewhere under 1000.
 
 You can test where a threshold is by enabling acceleration with MIN_GYRO_SENS 0, MAX_GYRO_SENS 1. Then set MIN_GYRO_THRESHOLD to the desired test number, MAX_GYRO_THRESHOLD to one above that, and see how fast you must move the controller to get a response.
+MULTILINE
+control = info
+
+[Info: How do I use this with XIM?]
+shortdesc = <<<MULTILINE
+Plug the titan's OUTPUT into the xim's input. The XIM plugs into your PC or console.
+
+There are some oddities I have yet to address.
+
+Create a new config in XIM for uJSM.
+
+The Titan <code>HID joystick</code> output is interpretted by the XIM strangely.
+You'll have to map every button on the controller to the button it should be.
+Then,
+  Right Stick X = Joystick Left Z
+  Right Stick Y = Joystick Right Z
+
+Last, the right stick Y axis is inverted. For whatever reason, XIM's own inverted aim option won't work here.
+You'll have to just invert the Y axis in the game settings. Most games have this.
 MULTILINE
 control = info
 
