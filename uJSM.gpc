@@ -144,15 +144,44 @@ bool configMode = FALSE;
 const bool DEBUG = FALSE;
 bool gyroBlocked;
 
+
 //Settings with initial defaults
-uint8 gyro_output = 1; //0:mouse, 1:right stick, 2:left stick
-uint8 outProtocol = 0;
+
+//gyro_output options
+#define MOUSE 0
+#define RIGHT_STICK 1
+#define LEFT_STICK 2
+uint8 gyro_output = RIGHT_STICK;
+
+//outProtocol options
+#define NO_CHANGE 0
+#define USB_AUTO 1
+#define USB_PS4 2
+#define USB_360 3
+#define USB_HID 4
+#define BT_HID 5
+#define BT_PS3 6
+#define BT_PS4 7
+#define BT_360 8
+#define BT_XB1 9
+#define BT_NSW 10
+#define BT_WII 11
+uint8 outProtocol = NO_CHANGE;
+
 bool flickStick = FALSE;
 bool calibrating = TRUE;
 bool outerStickOverride = TRUE;
 bool stickDisable = FALSE;
 bool stickIsUndead = FALSE;
-uint8 gyro_space = 0;
+
+//gyro_space options
+#define LOCAL 0
+#define PLAYER_TURN 1
+#define PLAYER_LEAN 2
+#define WORLD_TURN 3
+#define WORLD_LEAN 4
+uint8 gyro_space = LOCAL;
+
 uint16 maxStickGameSpeed = 160; //JSM default 360
 fix32 min_gyro_sens = 1.0;
 fix32 max_gyro_sens = 1.0;
@@ -224,8 +253,8 @@ init {
   }
 
   if (DEBUG) {
-    gyro_output = 0;
-    stickDisable = 0;
+    gyro_output = MOUSE;
+    stickDisable = FALSE;
     outerStickOverride = FALSE;
     calibrating = TRUE;
     flickStick = TRUE;
@@ -240,7 +269,7 @@ init {
     max_gyro_sens = 1.0;
     gyro_tight_threshold = 0.0;
     gyro_smooth_threshold = 0.0;
-    gyro_space = 0;
+    gyro_space = LOCAL;
     configMode = FALSE;
     stickIsUndead = FALSE;
     in_game_sens = 1.0;
@@ -252,7 +281,7 @@ init {
 main {
   //End user take note!
   //Create your controller to mouse & keyboard binds here
-  if  (gyro_output == 0) {
+  if  (gyro_output == MOUSE) {
     if (is_active(BUTTON_4)) {//R1/RB suggested as fire for gyro
       mouse_set(MBUTTON_1, TRUE);//Triggers tend to make you wobble controller
     } else if (is_release(BUTTON_4)) {
@@ -304,11 +333,11 @@ main {
 
   if (configMode) liveAdjust();
 
-  if (gyro_output == 1 || gyro_output == 0) {//Right stick
+  if (gyro_output == RIGHT_STICK || gyro_output == MOUSE) {
     STICK_X = get_actual(STICK_1_X) / 100.0;//JSM logic operates on 0-1
     STICK_Y = get_actual(STICK_1_Y) / 100.0;
   }
-  if (gyro_output == 2) {//Left stick
+  if (gyro_output == LEFT_STICK) {//Left stick
     STICK_X = get_actual(STICK_2_X) / 100.0;//JSM logic operates on 0-1
     STICK_Y = get_actual(STICK_2_Y) / 100.0;
   }
@@ -342,7 +371,7 @@ main {
     //Filtering for unique samples appears to undo what is probably Titan's
     //internally managed deltaTime.
     if (!calibrating) processInput();
-    if (gyro_output == 0) {//mouse
+    if (gyro_output == MOUSE) {
       processMouse(camera[0], camera[1]);
     }
     if (gyro_output >= 1) {
@@ -362,15 +391,15 @@ main {
   }
 
   if  (gyro_output) {//nonzero means joystick
-    if ((min_gyro_sens == 0.0 && max_gyro_sens == 0.0) && gyro_output == 1) {
+    if ((min_gyro_sens == 0.0 && max_gyro_sens == 0.0) && gyro_output == RIGHT_STICK) {
       //hack to help with finding deadzones more quickly
       set_val(STICK_1_X, undeadzone_inner * 100.0);
       //hack to help with finding max stick game speed
       if (!calibrating && !configMode) blinkerSync();
-    } else if (gyro_output == 1) {
+    } else if (gyro_output == RIGHT_STICK) {
       set_val(STICK_1_X, gyroStickX * 100.0);
       set_val(STICK_1_Y, gyroStickY * 100.0);
-    } else if (gyro_output == 2) {
+    } else if (gyro_output == LEFT_STICK) {
       set_val(STICK_2_X, gyroStickX * 100.0);
       set_val(STICK_2_Y, gyroStickY * 100.0);
     }
@@ -736,7 +765,7 @@ void processGyroInput(fix32 calibratedGyro0, fix32 calibratedGyro1, fix32 calibr
 fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
   // gyro: [0]y [1]x [2]z == [yaw] [pitch] [roll]
   //accel: [0]y [1]x [2]z == [left/right] [up/down] [front/back]
-  if (gyro_space == 0) {//LOCAL
+  if (gyro_space == LOCAL) {
     camera[0] = calibratedGyro0;
     camera[1] = calibratedGyro1;
   } else {//prep for player space and world space
@@ -757,8 +786,8 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
     rollAxisX, rollAxisY, rollAxisZ, rollAxisLengthSquared;
     #define gravDotPitchAxis normGravX//shave off a fix32 via macro
 
-    if (gyro_space == 1 || gyro_space == 2) {
-      if (gyro_space == 1) {//PLAYER_TURN (from JSM)
+    if (gyro_space == PLAYER_TURN || gyro_space == PLAYER_LEAN) {
+      if (gyro_space == PLAYER_TURN) {//(from JSM)
         // grav dot gyro axis (but only Y (yaw) and Z (roll))
         worldYaw = -(normGravY * calibratedGyro0
         + normGravZ * calibratedGyro2);/*sign flip appeases mystery GPC wrath*/
@@ -829,7 +858,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         // by the way, pinch it towards the nonsense limit
         camera[1] *= sideReduction;
 
-        if (gyro_space == 4) {//WORLD_LEAN
+        if (gyro_space == WORLD_LEAN) {
           // world roll axis is cross (yaw, pitch)
           rollAxisX = pitchAxisY * normGravZ - pitchAxisZ * normGravY;
           rollAxisY = pitchAxisZ * normGravX - pitchAxisX * normGravZ;
@@ -852,7 +881,7 @@ fix32 accelGrav0, fix32 accelGrav1, fix32 accelGrav2, fix32 gyroSensitivity) {
         }
       }
 
-      if (gyro_space == 3) {//WORLD_TURN
+      if (gyro_space == WORLD_TURN) {
         camera[0] = -(worldYaw);/*sign flip appeases mystery GPC wrath*/
       }
     }
